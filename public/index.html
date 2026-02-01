@@ -107,18 +107,14 @@
                                     <span class="toggle-status">włączono</span>
                                 </div>
                             </div>
-                            <div class="feature-toggle active" id="toggle-run-it-twice">
-                                <input type="checkbox" id="config-run-it-twice-enabled" checked hidden>
-                                <div class="toggle-content">
-                                    <span class="toggle-icon">🔄</span>
-                                    <span class="toggle-name">Run It Twice</span>
-                                    <span class="toggle-status">włączono</span>
-                                </div>
-                            </div>
                         </div>
                         <div class="ante-amount-row" id="bb-ante-amount-group" style="display: none;">
                             <label>Wartość BB Ante</label>
                             <input type="number" id="config-bb-ante-amount" value="20" min="1">
+                        </div>
+                        <div class="turn-timeout-row" id="turn-timeout-group">
+                            <label>⏱️ Czas na ruch: <span id="turn-timeout-value">15</span>s</label>
+                            <input type="range" id="config-turn-timeout" value="15" min="5" max="60" step="5" class="turn-timeout-slider">
                         </div>
                     </div>
                     

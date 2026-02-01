@@ -40,349 +40,70 @@ const DEFAULT_CONFIG = {
     maxPlayers: 8,
     maxSpectators: 10,
     bbAnteEnabled: false,
-    bbAnteAmount: 20,  // Domyślnie równe Big Blindowi
-    bombPotEnabled: true,  // Zezwalaj na głosowania Bomb Pot
-    runItTwiceEnabled: true, // Zezwalaj na Run It Twice
-    cardSkin: 'classic' // Skin kart: classic, colorful, dark
+    bbAnteAmount: 20,
+    bombPotEnabled: true,
+    cardSkin: 'classic',
+    turnTimeout: 15 // Czas na ruch w sekundach
 };
 
-// ============== RUN IT TWICE VOTING ==============
-const RUN_IT_TWICE_VOTE_TIMEOUT = 10000; // 10 sekund na decyzję
-const runItTwiceVotes = new Map(); // lobbyCode -> { players: Set<playerId>, votes: Map<playerId, boolean>, timer, expiresAt }
+// ============== TURN TIMER SYSTEM ==============
+const turnTimers = new Map(); // lobbyCode -> { timer, playerId, expiresAt }
 
-function startRunItTwiceVote(lobby) {
-    const lobbyCode = lobby.code;
+function startTurnTimer(lobby) {
     const gameState = lobby.gameState;
+    if (!gameState || gameState.phase === 'waiting' || gameState.phase === 'showdown') return;
     
-    // Wyczyść poprzednie głosowanie jeśli istnieje
-    clearRunItTwiceVote(lobbyCode);
+    // Wyczyść poprzedni timer
+    clearTurnTimer(lobby.code);
     
-    // Pobierz wszystkich graczy w rozdaniu (wszyscy mogą głosować w RIT)
-    const playersInHand = getPlayersInHand(gameState);
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (!currentPlayer || currentPlayer.isAllIn) return;
     
-    // Muszą być minimum 2 gracze w rozdaniu
-    if (playersInHand.length < 2) {
-        console.log(`[RIT] Za mało graczy w rozdaniu (${playersInHand.length})`);
-        return false;
-    }
+    const timeout = (lobby.config.turnTimeout || 15) * 1000;
+    const expiresAt = Date.now() + timeout;
     
-    const expiresAt = Date.now() + RUN_IT_TWICE_VOTE_TIMEOUT;
+    const timer = setTimeout(() => {
+        // Auto-fold gdy czas minie
+        console.log(`[TURN-TIMER] Czas minął dla ${currentPlayer.name} - auto-fold`);
+        
+        // Sprawdź czy gracz wciąż jest aktualnym graczem
+        if (gameState.players[gameState.currentPlayerIndex]?.id === currentPlayer.id) {
+            playerFold(lobby, currentPlayer.id);
+            
+            io.to(lobby.code).emit('autoAction', {
+                playerId: currentPlayer.id,
+                playerName: currentPlayer.name,
+                action: 'fold',
+                reason: 'timeout'
+            });
+        }
+        
+        turnTimers.delete(lobby.code);
+    }, timeout);
     
-    const voteData = {
-        players: new Set(playersInHand.map(p => p.id)),
-        votes: new Map(),
+    turnTimers.set(lobby.code, {
+        timer,
+        playerId: currentPlayer.id,
+        expiresAt
+    });
+    
+    // Powiadom klientów o starcie timera
+    io.to(lobby.code).emit('turnTimerStarted', {
+        playerId: currentPlayer.id,
         expiresAt,
-        timer: setTimeout(() => {
-            endRunItTwiceVote(lobby, false); // Timeout = nie ma zgody
-        }, RUN_IT_TWICE_VOTE_TIMEOUT)
-    };
-    
-    runItTwiceVotes.set(lobbyCode, voteData);
-    
-    // Powiadom wszystkich o rozpoczęciu głosowania RIT
-    io.to(lobbyCode).emit('runItTwiceVoteStarted', {
-        players: playersInHand.map(p => ({ id: p.id, name: p.name })),
-        expiresAt: expiresAt
+        duration: lobby.config.turnTimeout || 15
     });
-    
-    console.log(`[RIT] Głosowanie rozpoczęte dla ${playersInHand.length} graczy`);
-    return true;
 }
 
-function castRunItTwiceVote(lobby, playerId, vote) {
-    const voteData = runItTwiceVotes.get(lobby.code);
-    if (!voteData) return false;
-    
-    // Sprawdź czy gracz jest uczestnikiem głosowania
-    if (!voteData.players.has(playerId)) return false;
-    
-    voteData.votes.set(playerId, vote);
-    
-    const player = lobby.gameState.players.find(p => p.id === playerId);
-    console.log(`[RIT] ${player?.name || playerId} zagłosował: ${vote ? 'TAK' : 'NIE'}`);
-    
-    // Broadcast aktualizacji głosów
-    io.to(lobby.code).emit('runItTwiceVoteUpdate', {
-        playerId,
-        vote,
-        votedCount: voteData.votes.size,
-        totalVoters: voteData.players.size
-    });
-    
-    // Jeśli ktoś powiedział NIE - koniec głosowania
-    if (vote === false) {
-        endRunItTwiceVote(lobby, false);
-        return true;
-    }
-    
-    // Sprawdź czy wszyscy zagłosowali TAK
-    if (voteData.votes.size >= voteData.players.size) {
-        const allYes = Array.from(voteData.votes.values()).every(v => v === true);
-        endRunItTwiceVote(lobby, allYes);
-    }
-    
-    return true;
-}
-
-function endRunItTwiceVote(lobby, approved) {
-    const voteData = runItTwiceVotes.get(lobby.code);
-    if (!voteData) return;
-    
-    clearTimeout(voteData.timer);
-    runItTwiceVotes.delete(lobby.code);
-    
-    const gameState = lobby.gameState;
-    
-    // Powiadom wszystkich o wyniku
-    io.to(lobby.code).emit('runItTwiceVoteResult', {
-        approved,
-        message: approved 
-            ? '🔄 Run It Twice! Karty zostaną wyłożone dwukrotnie!'
-            : '❌ Run It Twice odrzucone - karty wykładane raz.'
-    });
-    
-    console.log(`[RIT] Wynik głosowania: ${approved ? 'ZATWIERDZONY' : 'ODRZUCONY'}`);
-    
-    if (approved) {
-        // Uruchom Run It Twice
-        gameState.runItTwice = true;
-        runItTwiceDeal(lobby);
-    } else {
-        // Normalne wykładanie kart
-        runAllInCommunityCards(lobby);
-    }
-}
-
-function clearRunItTwiceVote(lobbyCode) {
-    const voteData = runItTwiceVotes.get(lobbyCode);
-    if (voteData) {
-        clearTimeout(voteData.timer);
-        runItTwiceVotes.delete(lobbyCode);
-    }
-}
-
-// ============== RUN IT TWICE DEAL ==============
-function runItTwiceDeal(lobby) {
-    const gameState = lobby.gameState;
-    const playersInHand = getPlayersInHand(gameState);
-    
-    // Ile kart brakuje do pełnego boardu?
-    const currentCommunityCount = gameState.communityCards.length;
-    const cardsNeededPerRun = 5 - currentCommunityCount;
-    
-    if (cardsNeededPerRun <= 0) {
-        // Już pełny board - normalne rozstrzygnięcie
-        determineWinner(lobby);
-        return;
-    }
-    
-    console.log(`[RIT] Potrzeba ${cardsNeededPerRun} kart na run (obecnie: ${currentCommunityCount})`);
-    
-    // Wylosuj karty dla Run 1
-    const run1Cards = [];
-    for (let i = 0; i < cardsNeededPerRun; i++) {
-        if (gameState.deck.length > 0) {
-            run1Cards.push(dealCard(gameState));
-        }
-    }
-    
-    // Wylosuj karty dla Run 2 (z tej samej talii - karty z Run 1 już usunięte!)
-    const run2Cards = [];
-    for (let i = 0; i < cardsNeededPerRun; i++) {
-        if (gameState.deck.length > 0) {
-            run2Cards.push(dealCard(gameState));
-        }
-    }
-    
-    // Zapisz oba boardy w stanie gry
-    gameState.ritBoard1 = [...gameState.communityCards, ...run1Cards];
-    gameState.ritBoard2 = [...gameState.communityCards, ...run2Cards];
-    
-    console.log(`[RIT] Board 1: ${gameState.ritBoard1.map(c => c.value + c.suit).join(', ')}`);
-    console.log(`[RIT] Board 2: ${gameState.ritBoard2.map(c => c.value + c.suit).join(', ')}`);
-    
-    // Orientacyjny podział puli (tylko do wyświetlenia, rzeczywisty podział w resolveRunItTwice)
-    const estimatedPotA = Math.ceil(gameState.pot / 2);
-    const estimatedPotB = Math.floor(gameState.pot / 2);
-    
-    // Animacja wykładania kart - Run 1
-    const CARD_DELAY = 800;
-    let delay = 0;
-    
-    // Wyślij event rozpoczęcia RIT
-    io.to(lobby.code).emit('runItTwiceStarted', {
-        currentBoard: gameState.communityCards,
-        cardsPerRun: cardsNeededPerRun,
-        potA: estimatedPotA,
-        potB: estimatedPotB
-    });
-    
-    delay += 1000;
-    
-    // Animacja Run 1
-    run1Cards.forEach((card, idx) => {
-        setTimeout(() => {
-            io.to(lobby.code).emit('runItTwiceCard', {
-                run: 1,
-                cardIndex: currentCommunityCount + idx,
-                card: card,
-                board: [...gameState.communityCards, ...run1Cards.slice(0, idx + 1)]
-            });
-        }, delay + idx * CARD_DELAY);
-    });
-    
-    delay += run1Cards.length * CARD_DELAY + 500;
-    
-    // Animacja Run 2
-    run2Cards.forEach((card, idx) => {
-        setTimeout(() => {
-            io.to(lobby.code).emit('runItTwiceCard', {
-                run: 2,
-                cardIndex: currentCommunityCount + idx,
-                card: card,
-                board: [...gameState.communityCards, ...run2Cards.slice(0, idx + 1)]
-            });
-        }, delay + idx * CARD_DELAY);
-    });
-    
-    delay += run2Cards.length * CARD_DELAY + 1000;
-    
-    // Po wykładaniu wszystkich kart - rozstrzygnięcie
-    setTimeout(() => {
-        resolveRunItTwice(lobby);
-    }, delay);
-}
-
-function resolveRunItTwice(lobby) {
-    const gameState = lobby.gameState;
-    const playersInHand = getPlayersInHand(gameState);
-    
-    // === Użyj tej samej logiki side pots co w determineWinner ===
-    const sidePots = calculateSidePots(gameState, playersInHand);
-    
-    console.log(`[RIT] Obliczono ${sidePots.length} pul(ę):`);
-    sidePots.forEach((pot, i) => {
-        console.log(`  Pula ${i+1}: ${pot.amount} żetonów, uprawnieni: ${pot.eligiblePlayers.map(p => p.name).join(', ')}`);
-    });
-    
-    const allWinners1Info = [];
-    const allWinners2Info = [];
-    let totalPotA = 0;
-    let totalPotB = 0;
-    
-    // Dla każdej puli:
-    sidePots.forEach((pot, potIndex) => {
-        // Podziel pulę na dwie części
-        const potA = Math.ceil(pot.amount / 2);
-        const potB = Math.floor(pot.amount / 2);
-        totalPotA += potA;
-        totalPotB += potB;
+function clearTurnTimer(lobbyCode) {
+    const timerData = turnTimers.get(lobbyCode);
+    if (timerData) {
+        clearTimeout(timerData.timer);
+        turnTimers.delete(lobbyCode);
         
-        // === Board 1 ===
-        const board1Results = pot.eligiblePlayers.map(player => ({
-            player,
-            hand: getBestHand(player.cards, gameState.ritBoard1)
-        }));
-        board1Results.sort((a, b) => compareHands(b.hand, a.hand));
-        
-        // Znajdź zwycięzców Board 1 dla tej puli
-        const winners1 = [board1Results[0]];
-        for (let i = 1; i < board1Results.length; i++) {
-            if (compareHands(board1Results[i].hand, board1Results[0].hand) === 0) {
-                winners1.push(board1Results[i]);
-            }
-        }
-        
-        // Przyznaj żetony za Board 1
-        const win1Amount = Math.floor(potA / winners1.length);
-        winners1.forEach(w => {
-            w.player.chips += win1Amount;
-            
-            // Dodaj do listy zwycięzców (lub zaktualizuj istniejący wpis)
-            const existingWinner = allWinners1Info.find(wi => wi.id === w.player.id);
-            if (existingWinner) {
-                existingWinner.amount += win1Amount;
-            } else {
-                allWinners1Info.push({
-                    id: w.player.id,
-                    name: w.player.name,
-                    amount: win1Amount,
-                    hand: w.hand.name,
-                    cards: w.player.cards
-                });
-            }
-        });
-        
-        // === Board 2 ===
-        const board2Results = pot.eligiblePlayers.map(player => ({
-            player,
-            hand: getBestHand(player.cards, gameState.ritBoard2)
-        }));
-        board2Results.sort((a, b) => compareHands(b.hand, a.hand));
-        
-        // Znajdź zwycięzców Board 2 dla tej puli
-        const winners2 = [board2Results[0]];
-        for (let i = 1; i < board2Results.length; i++) {
-            if (compareHands(board2Results[i].hand, board2Results[0].hand) === 0) {
-                winners2.push(board2Results[i]);
-            }
-        }
-        
-        // Przyznaj żetony za Board 2
-        const win2Amount = Math.floor(potB / winners2.length);
-        winners2.forEach(w => {
-            w.player.chips += win2Amount;
-            
-            // Dodaj do listy zwycięzców (lub zaktualizuj istniejący wpis)
-            const existingWinner = allWinners2Info.find(wi => wi.id === w.player.id);
-            if (existingWinner) {
-                existingWinner.amount += win2Amount;
-            } else {
-                allWinners2Info.push({
-                    id: w.player.id,
-                    name: w.player.name,
-                    amount: win2Amount,
-                    hand: w.hand.name,
-                    cards: w.player.cards
-                });
-            }
-        });
-        
-        console.log(`[RIT] Pula ${potIndex + 1}: Board1 -> ${winners1.map(w => w.player.name).join(', ')} (${win1Amount}), Board2 -> ${winners2.map(w => w.player.name).join(', ')} (${win2Amount})`);
-    });
-    
-    // Wyślij wyniki RIT
-    io.to(lobby.code).emit('runItTwiceResult', {
-        board1: gameState.ritBoard1,
-        board2: gameState.ritBoard2,
-        winners1: allWinners1Info,
-        winners2: allWinners2Info,
-        potA: totalPotA,
-        potB: totalPotB,
-        message: formatRITMessage(allWinners1Info, allWinners2Info, totalPotA, totalPotB)
-    });
-    
-    console.log(`[RIT] Board 1 zwycięzca(y): ${allWinners1Info.map(w => `${w.name}(${w.amount})`).join(', ')}`);
-    console.log(`[RIT] Board 2 zwycięzca(y): ${allWinners2Info.map(w => `${w.name}(${w.amount})`).join(', ')}`);
-    
-    gameState.phase = 'showdown';
-    gameState.pot = 0;
-    broadcastGameState(lobby);
-    
-    setTimeout(() => {
-        startNewRound(lobby);
-    }, 6000);
-}
-
-function formatRITMessage(winners1, winners2, potA, potB) {
-    const w1Names = winners1.map(w => w.name).join(' i ');
-    const w2Names = winners2.map(w => w.name).join(' i ');
-    
-    if (w1Names === w2Names) {
-        return `🏆 ${w1Names} wygrywa oba boardy! (${potA + potB} żetonów)`;
+        // Powiadom klientów
+        io.to(lobbyCode).emit('turnTimerCleared');
     }
-    
-    return `🎲 Board 1: ${w1Names} (${potA}) | Board 2: ${w2Names} (${potB})`;
 }
 
 // ============== BOMB POT VOTING ==============
@@ -538,90 +259,6 @@ function clearBombPotVote(lobbyCode) {
     }
 }
 
-// ============== TURN TIMER ==============
-const TURN_TIMEOUT = 15000; // 15 sekund
-const turnTimers = new Map(); // lobbyCode -> { timerId, playerId, expiresAt }
-
-function startTurnTimer(lobby) {
-    const lobbyCode = lobby.code;
-    const gameState = lobby.gameState;
-    
-    // Wyczyść poprzedni timer jeśli istnieje
-    clearTurnTimer(lobbyCode);
-    
-    // Nie startuj timera w fazach bez akcji
-    if (!gameState || gameState.phase === 'waiting' || gameState.phase === 'showdown') {
-        return;
-    }
-    
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-    if (!currentPlayer || currentPlayer.folded || currentPlayer.isAllIn) {
-        return;
-    }
-    
-    const expiresAt = Date.now() + TURN_TIMEOUT;
-    
-    const timerId = setTimeout(() => {
-        console.log(`[TURN-TIMER] Czas minął dla gracza ${currentPlayer.name}`);
-        
-        // Sprawdź czy gracz wciąż ma turę
-        if (gameState.players[gameState.currentPlayerIndex]?.id !== currentPlayer.id) {
-            console.log(`[TURN-TIMER] Gracz już nie ma tury, anulowanie auto-akcji`);
-            return;
-        }
-        
-        // Auto-akcja: check jeśli możliwy, w przeciwnym razie fold
-        const canCheck = currentPlayer.currentBet >= gameState.currentBet;
-        
-        if (canCheck) {
-            console.log(`[TURN-TIMER] Auto-CHECK dla ${currentPlayer.name}`);
-            io.to(lobbyCode).emit('autoAction', { 
-                playerId: currentPlayer.id, 
-                playerName: currentPlayer.name, 
-                action: 'check',
-                reason: 'timeout'
-            });
-            playerCheck(lobby, currentPlayer.id);
-        } else {
-            console.log(`[TURN-TIMER] Auto-FOLD dla ${currentPlayer.name}`);
-            io.to(lobbyCode).emit('autoAction', { 
-                playerId: currentPlayer.id, 
-                playerName: currentPlayer.name, 
-                action: 'fold',
-                reason: 'timeout'
-            });
-            playerFold(lobby, currentPlayer.id);
-        }
-        
-        turnTimers.delete(lobbyCode);
-    }, TURN_TIMEOUT);
-    
-    turnTimers.set(lobbyCode, {
-        timerId,
-        playerId: currentPlayer.id,
-        expiresAt
-    });
-    
-    // Emituj zdarzenie do wszystkich graczy
-    io.to(lobbyCode).emit('turnTimerStarted', {
-        playerId: currentPlayer.id,
-        expiresAt,
-        duration: TURN_TIMEOUT
-    });
-    
-    console.log(`[TURN-TIMER] Timer uruchomiony dla ${currentPlayer.name}, wygasa o ${new Date(expiresAt).toLocaleTimeString()}`);
-}
-
-function clearTurnTimer(lobbyCode) {
-    const timerData = turnTimers.get(lobbyCode);
-    if (timerData) {
-        clearTimeout(timerData.timerId);
-        turnTimers.delete(lobbyCode);
-        io.to(lobbyCode).emit('turnTimerCleared');
-        console.log(`[TURN-TIMER] Timer wyczyszczony dla lobby ${lobbyCode}`);
-    }
-}
-
 // ============== ZARZĄDZANIE LOBBY ==============
 const lobbies = new Map();
 
@@ -673,7 +310,11 @@ function getLobbyByPlayerId(playerId) {
 }
 
 function removeLobby(code) {
+    // Wyczyść głosowanie Bomb Pot przed usunięciem lobby
+    clearBombPotVote(code);
+    
     lobbies.delete(code);
+    console.log(`[CLEANUP] Lobby ${code} usunięte`);
 }
 
 // ============== FUNKCJE POMOCNICZE - TALIA ==============
@@ -979,15 +620,8 @@ function resetRound(gameState) {
     gameState.phase = 'preflop';
     gameState.roundBets = {};
     gameState.minRaise = gameState.config.bigBlind;
-    gameState.allInShowdown = false; // Reset flagi all-in showdown
-    gameState.wonByFold = false; // Reset flagi wygranej przez fold
-    gameState.foldWinnerId = null;
-    gameState.foldWinnerCards = null;
-    
-    // Reset Run It Twice
-    gameState.runItTwice = false;
-    gameState.ritBoard1 = null;
-    gameState.ritBoard2 = null;
+    gameState.allInShowdown = false;
+    gameState.wonByFold = false;
     
     gameState.players.forEach(p => {
         p.cards = [];
@@ -995,7 +629,7 @@ function resetRound(gameState) {
         p.currentBet = 0;
         p.hasActed = false;
         p.isAllIn = false;
-        p.totalContribution = 0; // Suma wpłacona w całym rozdaniu (do side pots)
+        p.totalContribution = 0;
     });
 }
 
@@ -1071,11 +705,6 @@ function postBlinds(gameState, lobby) {
     
     const currentPlayer = activePlayers[gameState.currentPlayerIndex];
     gameState.currentPlayerIndex = gameState.players.findIndex(p => p.id === currentPlayer.id);
-    
-    // Uruchom timer dla pierwszego gracza po blindach
-    if (lobby) {
-        startTurnTimer(lobby);
-    }
 }
 
 function dealCommunityCards(gameState, count) {
@@ -1126,6 +755,7 @@ function runAllInShowdown(lobby) {
     const gameState = lobby.gameState;
     const playersInHand = getPlayersInHand(gameState);
     
+    // Wyczyść timer
     clearTurnTimer(lobby.code);
     
     // Oznacz że jesteśmy w trybie all-in showdown
@@ -1150,28 +780,10 @@ function runAllInShowdown(lobby) {
         communityCards: gameState.communityCards
     });
     
-    // Broadcast gameState żeby UI się zaktualizował (żetony, itp.)
+    // Broadcast gameState żeby UI się zaktualizował
     broadcastGameState(lobby);
     
-    // Sprawdź czy Run It Twice jest włączony i możliwy
-    const config = gameState.config || lobby.config;
-    const missingCards = 5 - gameState.communityCards.length;
-    
-    // RIT możliwy gdy: włączony, brakuje kart do wyłożenia, wystarczająco kart w talii
-    if (config.runItTwiceEnabled && missingCards > 0 && gameState.deck.length >= missingCards * 2) {
-        // Opóźnij głosowanie RIT o 2 sekundy, żeby gracze zobaczyli karty
-        setTimeout(() => {
-            if (startRunItTwiceVote(lobby)) {
-                console.log(`[ALL-IN SHOWDOWN] Rozpoczęto głosowanie Run It Twice`);
-            } else {
-                // Jeśli głosowanie nie powiodło się, kontynuuj normalnie
-                runAllInCommunityCards(lobby);
-            }
-        }, 2000);
-        return; // Czekamy na timeout
-    }
-    
-    // RIT wyłączony lub niemożliwy - od razu wykładaj karty bez czekania
+    // Od razu wykładaj karty
     runAllInCommunityCards(lobby);
 }
 
@@ -1310,7 +922,9 @@ function nextPhase(lobby) {
     gameState.currentPlayerIndex = nextIndex;
     
     broadcastGameState(lobby);
-    startTurnTimer(lobby); // Uruchom timer dla gracza na nowej fazie
+    
+    // Start turn timer dla następnego gracza
+    startTurnTimer(lobby);
 }
 
 function findNextPlayer(lobby) {
@@ -1319,7 +933,6 @@ function findNextPlayer(lobby) {
     const playersWhoCanAct = playersInHand.filter(p => !p.isAllIn && p.chips > 0);
     
     if (playersInHand.length <= 1) {
-        clearTurnTimer(lobby.code);
         endRound(lobby);
         return;
     }
@@ -1331,7 +944,6 @@ function findNextPlayer(lobby) {
     }
     
     if (playersWhoCanAct.length === 0) {
-        clearTurnTimer(lobby.code);
         nextPhase(lobby);
         return;
     }
@@ -1339,7 +951,6 @@ function findNextPlayer(lobby) {
     if (playersWhoCanAct.length === 1) {
         const lastPlayer = playersWhoCanAct[0];
         if (lastPlayer.currentBet >= gameState.currentBet && lastPlayer.hasActed) {
-            clearTurnTimer(lobby.code);
             nextPhase(lobby);
             return;
         }
@@ -1349,7 +960,6 @@ function findNextPlayer(lobby) {
     const allBetsEqual = playersWhoCanAct.every(p => p.currentBet === gameState.currentBet);
     
     if (allActed && allBetsEqual) {
-        clearTurnTimer(lobby.code);
         nextPhase(lobby);
         return;
     }
@@ -1362,14 +972,14 @@ function findNextPlayer(lobby) {
         if (!player.folded && !player.isAllIn && player.chips > 0) {
             gameState.currentPlayerIndex = nextIndex;
             broadcastGameState(lobby);
-            startTurnTimer(lobby); // Uruchom timer dla następnego gracza
+            // Start turn timer dla następnego gracza
+            startTurnTimer(lobby);
             return;
         }
         nextIndex = (nextIndex + 1) % gameState.players.length;
         attempts++;
     }
     
-    clearTurnTimer(lobby.code);
     nextPhase(lobby);
 }
 
@@ -1381,10 +991,8 @@ function determineWinner(lobby) {
         const winner = playersInHand[0];
         winner.chips += gameState.pot;
         
-        // Zapisz dane do funkcjonalności Show Cards (karty NIE są wysyłane automatycznie!)
+        // Wygrana przez fold
         gameState.wonByFold = true;
-        gameState.foldWinnerId = winner.id;
-        gameState.foldWinnerCards = [...winner.cards]; // Kopia kart
         
         // Ustaw fazę na showdown
         gameState.phase = 'showdown';
@@ -1700,8 +1308,6 @@ function startBombPotRound(lobby) {
     gameState.winners = [];
     gameState.showdownResults = null;
     gameState.wonByFold = false;
-    gameState.foldWinnerId = null;
-    gameState.foldWinnerCards = null;
     
     // Ustaw graczy
     gameState.players.forEach(player => {
@@ -1991,6 +1597,9 @@ function startNormalRound(lobby) {
     
     broadcastGameState(lobby);
     broadcastLobbyState(lobby);
+    
+    // Start turn timer dla pierwszego gracza
+    startTurnTimer(lobby);
 }
 
 function startNewRound(lobby) {
@@ -2202,7 +1811,6 @@ function broadcastGameState(lobby) {
 function getPlayerView(lobby, playerId) {
     const gameState = lobby.gameState;
     const player = gameState.players.find(p => p.id === playerId);
-    const timerData = turnTimers.get(lobby.code);
     const voteData = bombPotVotes.get(lobby.code);
     
     // Oblicz indeksy SB i BB
@@ -2227,12 +1835,11 @@ function getPlayerView(lobby, playerId) {
         allInShowdown: gameState.allInShowdown || false,
         isBombPot: isBombPot,
         bombPotStake: gameState.bombPotStake || null,
-        runItTwice: gameState.runItTwice || false,
         spectators: spectatorsList,
         players: gameState.players.map((p, idx) => {
             const showCards = p.id === playerId ? true : 
                    (isBombPot && gameState.bombPotParticipants?.includes(p.id) && !p.folded) ||
-                   (((gameState.phase === 'showdown' && !gameState.wonByFold) || gameState.allInShowdown || gameState.runItTwice) && !p.folded);
+                   (((gameState.phase === 'showdown' && !gameState.wonByFold) || gameState.allInShowdown) && !p.folded);
             
             // W showdown lub all-in showdown - oblicz karty do podświetlenia dla każdego gracza
             let playerHighlightCards = [];
@@ -2253,7 +1860,6 @@ function getPlayerView(lobby, playerId) {
                 isBB: idx === bbIndex,
                 isCurrentPlayer: idx === gameState.currentPlayerIndex,
                 cards: showCards ? p.cards : null,
-                // Karty do podświetlenia dla tego gracza (widoczne w showdown dla wszystkich)
                 highlightCards: (gameState.phase === 'showdown' || gameState.allInShowdown || isBombPot) ? playerHighlightCards : []
             };
         }),
@@ -2261,7 +1867,6 @@ function getPlayerView(lobby, playerId) {
         yourHand: player && player.cards.length === 2 && gameState.communityCards.length >= 3 
             ? getBestHand(player.cards, gameState.communityCards) 
             : null,
-        // Karty do podświetlenia tylko dla własnego układu (podczas gry, przed showdown)
         highlightCards: (() => {
             if (player && player.cards.length === 2 && gameState.communityCards.length >= 3 && !player.folded) {
                 const bestHand = getBestHand(player.cards, gameState.communityCards);
@@ -2269,33 +1874,36 @@ function getPlayerView(lobby, playerId) {
             }
             return [];
         })(),
-        isYourTurn: player && gameState.players.indexOf(player) === gameState.currentPlayerIndex && !player.folded,
+        isYourTurn: player && gameState.players.indexOf(player) === gameState.currentPlayerIndex && !player.folded && !player.isAllIn,
         canCheck: player && player.currentBet >= gameState.currentBet,
         callAmount: player ? gameState.currentBet - player.currentBet : 0,
         minBet: gameState.currentBet > 0 ? gameState.currentBet + gameState.minRaise : gameState.config.bigBlind,
         isGameStarted: gameState.isGameStarted,
         config: gameState.config,
         isSpectator: false,
-        // Oblicz side poty na żywo (jeśli są gracze all-in)
         sidePots: calculateLiveSidePots(gameState),
-        turnTimer: timerData ? {
-            playerId: timerData.playerId,
-            expiresAt: timerData.expiresAt,
-            duration: TURN_TIMEOUT
-        } : null,
         bombPotVote: voteData ? {
             initiatorName: voteData.initiatorName,
             stake: voteData.stake,
             expiresAt: voteData.expiresAt,
             hasVoted: voteData.votes.has(playerId),
             myVote: voteData.votes.get(playerId)
-        } : null
+        } : null,
+        turnTimer: (() => {
+            const timerData = turnTimers.get(lobby.code);
+            if (timerData) {
+                return {
+                    playerId: timerData.playerId,
+                    expiresAt: timerData.expiresAt
+                };
+            }
+            return null;
+        })()
     };
 }
 
 function getSpectatorView(lobby) {
     const gameState = lobby.gameState;
-    const timerData = turnTimers.get(lobby.code);
     const voteData = bombPotVotes.get(lobby.code);
     
     // Oblicz indeksy SB i BB
@@ -2325,7 +1933,6 @@ function getSpectatorView(lobby) {
             const showCards = (isBombPot && gameState.bombPotParticipants?.includes(p.id) && !p.folded) ||
                    (((gameState.phase === 'showdown' && !gameState.wonByFold) || gameState.allInShowdown) && !p.folded);
             
-            // W showdown - oblicz karty do podświetlenia dla każdego gracza
             let playerHighlightCards = [];
             if (showCards && p.cards && p.cards.length === 2 && gameState.communityCards.length >= 3) {
                 const hand = getBestHand(p.cards, gameState.communityCards);
@@ -2357,16 +1964,21 @@ function getSpectatorView(lobby) {
         config: gameState.config,
         isSpectator: true,
         sidePots: calculateLiveSidePots(gameState),
-        turnTimer: timerData ? {
-            playerId: timerData.playerId,
-            expiresAt: timerData.expiresAt,
-            duration: TURN_TIMEOUT
-        } : null,
         bombPotVote: voteData ? {
             initiatorName: voteData.initiatorName,
             stake: voteData.stake,
             expiresAt: voteData.expiresAt
-        } : null
+        } : null,
+        turnTimer: (() => {
+            const timerData = turnTimers.get(lobby.code);
+            if (timerData) {
+                return {
+                    playerId: timerData.playerId,
+                    expiresAt: timerData.expiresAt
+                };
+            }
+            return null;
+        })()
     };
 }
 
@@ -2509,11 +2121,14 @@ io.on('connection', (socket) => {
                     
                     // Sprawdź czy gra może kontynuować
                     if (lobby.gameState.players.length < lobby.config.minPlayers) {
+                        clearBombPotVote(lobby.code);
+                        clearTurnTimer(lobby.code);
                         lobby.gameState.phase = 'waiting';
                         lobby.gameState.isGameStarted = false;
                         lobby.isGameStarted = false;
                         io.to(lobby.code).emit('gameStatus', { message: 'Za mało graczy. Gra zakończona.' });
                     } else if (wasCurrentPlayer) {
+                        clearTurnTimer(lobby.code);
                         findNextPlayer(lobby);
                     } else if (getPlayersInHand(lobby.gameState).length <= 1) {
                         endRound(lobby);
@@ -2735,7 +2350,6 @@ io.on('connection', (socket) => {
         
         // Sprawdź czy lobby jest puste
         if (lobby.players.length === 0 && lobby.spectators.length === 0) {
-            clearTurnTimer(lobby.code);
             removeLobby(lobby.code);
             console.log(`[LEAVE-LOBBY] Lobby ${lobby.code} usunięte (puste)`);
             return;
@@ -2759,6 +2373,7 @@ io.on('connection', (socket) => {
                 }
                 
                 if (lobby.gameState.players.length < lobby.config.minPlayers) {
+                    clearBombPotVote(lobby.code);
                     clearTurnTimer(lobby.code);
                     lobby.gameState.phase = 'waiting';
                     lobby.gameState.isGameStarted = false;
@@ -2787,7 +2402,6 @@ io.on('connection', (socket) => {
         }
         if (newConfig.bigBlind !== undefined) {
             lobby.config.bigBlind = Math.max(lobby.config.smallBlind, parseInt(newConfig.bigBlind) || 20);
-            // Domyślnie ustaw BB Ante na wartość Big Blinda
             if (lobby.config.bbAnteAmount === undefined || newConfig.bbAnteAmount === undefined) {
                 lobby.config.bbAnteAmount = lobby.config.bigBlind;
             }
@@ -2804,14 +2418,14 @@ io.on('connection', (socket) => {
         if (newConfig.bombPotEnabled !== undefined) {
             lobby.config.bombPotEnabled = !!newConfig.bombPotEnabled;
         }
-        if (newConfig.runItTwiceEnabled !== undefined) {
-            lobby.config.runItTwiceEnabled = !!newConfig.runItTwiceEnabled;
-        }
         if (newConfig.cardSkin !== undefined) {
             const validSkins = ['classic', 'colorful', 'dark'];
             if (validSkins.includes(newConfig.cardSkin)) {
                 lobby.config.cardSkin = newConfig.cardSkin;
             }
+        }
+        if (newConfig.turnTimeout !== undefined) {
+            lobby.config.turnTimeout = Math.max(5, Math.min(120, parseInt(newConfig.turnTimeout) || 15));
         }
         
         broadcastLobbyState(lobby);
@@ -2860,10 +2474,10 @@ io.on('connection', (socket) => {
             return;
         }
         
-        let success = false;
-        
-        // Wyczyść timer przed wykonaniem akcji
+        // Wyczyść timer przed akcją
         clearTurnTimer(lobby.code);
+        
+        let success = false;
         
         switch (data.action) {
             case 'fold':
@@ -2883,62 +2497,7 @@ io.on('connection', (socket) => {
         
         if (!success) {
             socket.emit('error', { message: 'Nieprawidłowa akcja!' });
-            // Jeśli akcja nieudana, uruchom timer ponownie
-            startTurnTimer(lobby);
         }
-    });
-    
-    // ============== REVEAL HAND (Show Cards after fold win) ==============
-    socket.on('revealHand', (data) => {
-        const lobby = getLobbyByPlayerId(socket.id);
-        if (!lobby || !lobby.gameState) return;
-        
-        const gameState = lobby.gameState;
-        
-        // Przypadek 1: Zwycięzca przez fold pokazuje karty
-        if (gameState.wonByFold && gameState.foldWinnerId === socket.id) {
-            const cards = gameState.foldWinnerCards;
-            if (!cards || cards.length === 0) {
-                socket.emit('error', { message: 'Brak kart do pokazania!' });
-                return;
-            }
-            
-            const player = lobby.players.find(p => p.id === socket.id);
-            const playerName = player ? player.name : 'Gracz';
-            
-            // Wyślij karty wszystkim w lobby
-            io.to(lobby.code).emit('cardsRevealed', {
-                playerId: socket.id,
-                playerName: playerName,
-                cards: cards
-            });
-            
-            console.log(`[SHOW CARDS] ${playerName} pokazał karty: ${cards.join(', ')}`);
-            
-            // Wyczyść flagi aby nie można było pokazać ponownie
-            gameState.wonByFold = false;
-            gameState.foldWinnerId = null;
-            gameState.foldWinnerCards = null;
-            return;
-        }
-        
-        // Przypadek 2: Gracz który sfoldował pokazuje karty (przekazane z klienta)
-        if (data && data.foldedCards && Array.isArray(data.foldedCards) && data.foldedCards.length === 2) {
-            const player = lobby.players.find(p => p.id === socket.id);
-            const playerName = player ? player.name : 'Gracz';
-            
-            // Wyślij karty wszystkim w lobby
-            io.to(lobby.code).emit('cardsRevealed', {
-                playerId: socket.id,
-                playerName: playerName,
-                cards: data.foldedCards
-            });
-            
-            console.log(`[SHOW FOLDED CARDS] ${playerName} pokazał sfoldowane karty: ${data.foldedCards.join(', ')}`);
-            return;
-        }
-        
-        socket.emit('error', { message: 'Nie możesz teraz pokazać kart!' });
     });
     
     // ============== BOMB POT SOCKET HANDLERS ==============
@@ -2996,29 +2555,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // ============== RUN IT TWICE SOCKET HANDLER ==============
-    socket.on('castRunItTwiceVote', (data) => {
-        const lobby = getLobbyByPlayerId(socket.id);
-        if (!lobby || !lobby.gameState) {
-            socket.emit('error', { message: 'Nie jesteś w grze!' });
-            return;
-        }
-        
-        const voteData = runItTwiceVotes.get(lobby.code);
-        if (!voteData) {
-            socket.emit('error', { message: 'Brak aktywnego głosowania Run It Twice!' });
-            return;
-        }
-        
-        // Sprawdź czy gracz jest uczestnikiem głosowania
-        if (!voteData.players.has(socket.id)) {
-            socket.emit('error', { message: 'Nie uczestniczysz w tym głosowaniu!' });
-            return;
-        }
-        
-        castRunItTwiceVote(lobby, socket.id, data?.vote === true);
-    });
-    
     socket.on('disconnect', () => {
         const lobby = getLobbyByPlayerId(socket.id);
         if (!lobby) return;
@@ -3071,11 +2607,14 @@ io.on('connection', (socket) => {
                 }
                 
                 if (lobby.gameState.players.length < lobby.config.minPlayers) {
+                    clearBombPotVote(lobby.code);
+                    clearTurnTimer(lobby.code);
                     lobby.gameState.phase = 'waiting';
                     lobby.gameState.isGameStarted = false;
                     lobby.isGameStarted = false;
                     io.to(lobby.code).emit('gameStatus', { message: 'Za mało graczy. Gra zakończona.' });
                 } else if (wasCurrentPlayer) {
+                    clearTurnTimer(lobby.code);
                     findNextPlayer(lobby);
                 } else if (getPlayersInHand(lobby.gameState).length <= 1) {
                     endRound(lobby);

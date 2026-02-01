@@ -631,6 +631,66 @@ body {
     border-color: var(--gold);
 }
 
+/* Turn timeout slider row */
+.turn-timeout-row {
+    margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.turn-timeout-row label {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.turn-timeout-row label span {
+    color: var(--gold);
+    font-weight: bold;
+}
+
+.turn-timeout-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.4);
+    outline: none;
+    cursor: pointer;
+}
+
+.turn-timeout-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.turn-timeout-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+.turn-timeout-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.lobby-settings.readonly .turn-timeout-slider {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* Card skin selector */
 .card-skin-selector {
     display: grid;
@@ -1398,6 +1458,37 @@ body {
         inset 0 0 60px rgba(0, 0, 0, 0.5),
         0 25px 80px rgba(0, 0, 0, 0.6),
         0 0 0 4px rgba(139, 69, 19, 0.3);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Pulsowanie stołu na ostatnie 5 sekund timera */
+.poker-table.timer-critical {
+    border-color: #f44336 !important;
+    box-shadow: 
+        inset 0 0 60px rgba(0, 0, 0, 0.5),
+        0 25px 80px rgba(0, 0, 0, 0.6),
+        0 0 0 4px rgba(244, 67, 54, 0.5),
+        0 0 30px rgba(244, 67, 54, 0.4);
+    animation: tablePulseCritical 0.5s infinite;
+}
+
+@keyframes tablePulseCritical {
+    0%, 100% { 
+        border-color: #f44336;
+        box-shadow: 
+            inset 0 0 60px rgba(0, 0, 0, 0.5),
+            0 25px 80px rgba(0, 0, 0, 0.6),
+            0 0 0 4px rgba(244, 67, 54, 0.5),
+            0 0 30px rgba(244, 67, 54, 0.4);
+    }
+    50% { 
+        border-color: #ff5722;
+        box-shadow: 
+            inset 0 0 60px rgba(0, 0, 0, 0.5),
+            0 25px 80px rgba(0, 0, 0, 0.6),
+            0 0 0 6px rgba(244, 67, 54, 0.8),
+            0 0 50px rgba(244, 67, 54, 0.6);
+    }
 }
 
 /* ============== MIEJSCA GRACZY ============== */
@@ -1489,23 +1580,15 @@ body {
 }
 
 /* ============== TURN TIMER ============== */
-.turn-timer {
-    position: absolute;
-    bottom: -14px;
-    left: 5%;
-    width: 90%;
-    height: 5px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 3px;
-    overflow: hidden;
-    z-index: 5;
-}
-
 .turn-timer-bar {
-    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 4px;
     background: linear-gradient(90deg, var(--green), #4CAF50);
-    border-radius: 3px;
+    border-radius: 8px 8px 0 0;
     transition: width 0.1s linear;
+    z-index: 10;
 }
 
 .turn-timer-bar.warning {
@@ -1524,16 +1607,17 @@ body {
 
 .turn-timer-text {
     position: absolute;
-    top: -28px;
+    top: -30px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: bold;
     color: var(--gold);
     text-shadow: 0 0 5px rgba(0,0,0,0.9), 0 0 10px rgba(255, 215, 0, 0.5);
-    background: rgba(0, 0, 0, 0.6);
-    padding: 2px 8px;
-    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 4px 12px;
+    border-radius: 6px;
+    z-index: 15;
 }
 
 .turn-timer-text.warning {
@@ -2488,26 +2572,28 @@ body {
     position: fixed;
     top: 15px;
     left: 15px;
-    width: 45px;
-    height: 45px;
-    background: rgba(0, 0, 0, 0.5);
+    padding: 10px 16px;
+    background: rgba(0, 0, 0, 0.6);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 50%;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 1.2rem;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    font-weight: 500;
     cursor: pointer;
     z-index: 100;
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
 }
 
 .btn-leave-corner:hover {
     background: rgba(220, 53, 69, 0.8);
     border-color: #dc3545;
     color: white;
-    transform: scale(1.1);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
 }
 
 /* ============== GAME CODE DISPLAY (Corner) ============== */

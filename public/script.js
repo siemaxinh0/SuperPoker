@@ -98,23 +98,7 @@ let isPendingJoin = false;
 let raiseMinAmount = 20;
 let raiseMaxAmount = 1000;
 let currentWinners = []; // Lista zwycięzców do podświetlenia na stole
-let canShowCards = false; // Czy można pokazać karty
-let showCardsTimeout = null; // Timeout dla przycisku Show Cards
 let playerLastActions = {}; // Ostatnie akcje graczy {playerId: {action, amount, timestamp}}
-let myFoldedCards = null; // Karty gracza gdy sfoldował (do pokazania)
-
-// ============== RUN IT TWICE STATE ==============
-let ritActive = false;
-let ritBoard1 = [];
-let ritBoard2 = [];
-let ritVoteActive = false;
-let ritVoteExpiresAt = null;
-let ritVoteTimerInterval = null;
-let ritMyVote = null;
-
-// ============== SHOW CARDS DOM ==============
-const showCardsContainer = document.getElementById('show-cards-container');
-const btnShowCards = document.getElementById('btn-show-cards');
 
 // ============== BOMB POT DOM ==============
 const bombPotPanel = document.getElementById('bomb-pot-panel');
@@ -158,85 +142,10 @@ let bombPotVoteTimerInterval = null;
 let bombPotVoteExpiresAt = null;
 let isBombPotActive = false;
 
-// ============== TURN TIMER ==========================
+// ============== TURN TIMER STATE ==============
 let turnTimerInterval = null;
 let turnTimerExpiresAt = null;
 let turnTimerPlayerId = null;
-
-function startClientTurnTimer(playerId, expiresAt, duration) {
-    stopClientTurnTimer();
-    
-    turnTimerPlayerId = playerId;
-    turnTimerExpiresAt = expiresAt;
-    
-    turnTimerInterval = setInterval(() => {
-        updateTimerDisplay();
-    }, 100);
-    
-    updateTimerDisplay();
-}
-
-function stopClientTurnTimer() {
-    if (turnTimerInterval) {
-        clearInterval(turnTimerInterval);
-        turnTimerInterval = null;
-    }
-    turnTimerExpiresAt = null;
-    turnTimerPlayerId = null;
-    
-    // Usuń wszystkie timery z UI i klasę timer-critical
-    document.querySelectorAll('.turn-timer, .turn-timer-text').forEach(el => el.remove());
-    document.querySelectorAll('.player-box.timer-critical').forEach(el => el.classList.remove('timer-critical'));
-}
-
-function updateTimerDisplay() {
-    if (!turnTimerExpiresAt || !turnTimerPlayerId) return;
-    
-    const now = Date.now();
-    const remaining = Math.max(0, turnTimerExpiresAt - now);
-    const totalDuration = 15000; // 15 sekund
-    const percentage = (remaining / totalDuration) * 100;
-    const seconds = Math.ceil(remaining / 1000);
-    const isCritical = seconds <= 5;
-    
-    // Znajdź element gracza z timerem
-    const playerSeats = document.querySelectorAll('.player-seat');
-    playerSeats.forEach(seat => {
-        const playerBox = seat.querySelector('.player-box');
-        if (!playerBox) return;
-        
-        // Usuń istniejące timery (oba elementy)
-        playerBox.querySelectorAll('.turn-timer, .turn-timer-text').forEach(el => el.remove());
-        
-        // Sprawdź czy to aktualny gracz
-        if (playerBox.classList.contains('current-player')) {
-            // Dodaj/usuń klasę timer-critical dla efektu pulsowania
-            if (isCritical) {
-                playerBox.classList.add('timer-critical');
-            } else {
-                playerBox.classList.remove('timer-critical');
-            }
-            
-            // Dodaj timer
-            const timerHtml = `
-                <div class="turn-timer">
-                    <div class="turn-timer-bar ${percentage <= 33 ? 'critical' : percentage <= 50 ? 'warning' : ''}" 
-                         style="width: ${percentage}%"></div>
-                </div>
-                <div class="turn-timer-text ${percentage <= 33 ? 'critical' : percentage <= 50 ? 'warning' : ''}">${seconds}s</div>
-            `;
-            playerBox.insertAdjacentHTML('beforeend', timerHtml);
-        } else {
-            // Usuń klasę timer-critical jeśli nie jest to aktualny gracz
-            playerBox.classList.remove('timer-critical');
-        }
-    });
-    
-    // Jeśli czas minął, zatrzymaj timer
-    if (remaining <= 0) {
-        stopClientTurnTimer();
-    }
-}
 
 // ============== FUNKCJE POMOCNICZE ==============
 function showToast(message, type = 'info') {
@@ -441,8 +350,6 @@ document.querySelectorAll('.feature-toggle').forEach(toggle => {
                 }
             } else if (checkbox.id === 'config-bomb-pot-enabled') {
                 socket.emit('updateConfig', { bombPotEnabled: checkbox.checked });
-            } else if (checkbox.id === 'config-run-it-twice-enabled') {
-                socket.emit('updateConfig', { runItTwiceEnabled: checkbox.checked });
             }
         }
     });
@@ -466,20 +373,22 @@ document.querySelectorAll('.skin-option').forEach(option => {
 });
 
 // Opuszczanie lobby
-btnLeaveLobby.addEventListener('click', () => {
-    if (confirm('Czy na pewno chcesz opuścić lobby?')) {
-        socket.emit('leaveLobby');
-        // NIE resetuj stanu tutaj - poczekaj na odpowiedź serwera
-    }
-});
+if (btnLeaveLobby) {
+    btnLeaveLobby.addEventListener('click', () => {
+        if (confirm('Czy na pewno chcesz opuścić lobby?')) {
+            socket.emit('leaveLobby');
+        }
+    });
+}
 
 // Opuszczanie gry (dla spectatorów)
-btnLeaveGame.addEventListener('click', () => {
-    if (confirm('Czy na pewno chcesz opuścić grę?')) {
-        socket.emit('leaveLobby');
-        // NIE resetuj stanu tutaj - poczekaj na odpowiedź serwera
-    }
-});
+if (btnLeaveGame) {
+    btnLeaveGame.addEventListener('click', () => {
+        if (confirm('Czy na pewno chcesz opuścić grę?')) {
+            socket.emit('leaveLobby');
+        }
+    });
+}
 
 // Opuszczanie gry - przycisk w rogu z modalem potwierdzenia
 const btnLeaveGameCorner = document.getElementById('btn-leave-game-corner');
@@ -495,11 +404,8 @@ if (btnLeaveGameCorner) {
 
 if (btnConfirmLeave) {
     btnConfirmLeave.addEventListener('click', () => {
-        // Wyślij żądanie opuszczenia do serwera
-        // Poczekaj na odpowiedź serwera zanim zresetujesz stan
-        socket.emit('leaveLobby');
         if (leaveConfirmModal) leaveConfirmModal.classList.add('hidden');
-        // NIE resetuj stanu tutaj - poczekaj na odpowiedź serwera
+        socket.emit('leaveLobby');
     });
 }
 
@@ -548,6 +454,19 @@ configStartingChips.addEventListener('change', () => {
 configBbAnteAmount.addEventListener('change', () => {
     socket.emit('updateConfig', { bbAnteAmount: parseInt(configBbAnteAmount.value) || 20 });
 });
+
+// Turn Timeout handler (slider)
+const configTurnTimeout = document.getElementById('config-turn-timeout');
+const turnTimeoutValue = document.getElementById('turn-timeout-value');
+if (configTurnTimeout) {
+    configTurnTimeout.addEventListener('input', () => {
+        const value = parseInt(configTurnTimeout.value) || 15;
+        if (turnTimeoutValue) turnTimeoutValue.textContent = value;
+    });
+    configTurnTimeout.addEventListener('change', () => {
+        socket.emit('updateConfig', { turnTimeout: parseInt(configTurnTimeout.value) || 15 });
+    });
+}
 
 // ============== BOMB POT HANDLERS ==============
 btnStartBombPotVote.addEventListener('click', () => {
@@ -760,17 +679,6 @@ function updateLobbyState(lobby) {
             configBombPotEnabled.checked = isEnabled;
         }
         
-        // Run It Twice toggle
-        const runItTwiceToggle = document.getElementById('toggle-run-it-twice');
-        if (runItTwiceToggle) {
-            const isEnabled = lobby.config.runItTwiceEnabled !== false;
-            runItTwiceToggle.classList.toggle('active', isEnabled);
-            const status = runItTwiceToggle.querySelector('.toggle-status');
-            if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
-            const checkbox = document.getElementById('config-run-it-twice-enabled');
-            if (checkbox) checkbox.checked = isEnabled;
-        }
-        
         // Card skin selection
         const currentSkin = lobby.config.cardSkin || 'classic';
         document.querySelectorAll('.skin-option').forEach(opt => {
@@ -778,6 +686,15 @@ function updateLobbyState(lobby) {
         });
         const hiddenSkinInput = document.getElementById('config-card-skin');
         if (hiddenSkinInput) hiddenSkinInput.value = currentSkin;
+        
+        // Turn timeout (slider)
+        const turnTimeoutInput = document.getElementById('config-turn-timeout');
+        const turnTimeoutValueEl = document.getElementById('turn-timeout-value');
+        if (turnTimeoutInput) {
+            const timeout = lobby.config.turnTimeout || 15;
+            turnTimeoutInput.value = timeout;
+            if (turnTimeoutValueEl) turnTimeoutValueEl.textContent = timeout;
+        }
     }
     
     // Zaktualizuj skin kart
@@ -887,20 +804,6 @@ function renderCommunityCards(cards, highlightCards = []) {
     const isNewCards = currentCount > previousCommunityCardsCount;
     const newCardsStartIndex = previousCommunityCardsCount;
     
-    // Upewnij się, że nie ma trybu dual-board jeśli nie jest aktywny RIT
-    if (!ritActive) {
-        communityCardsEl.classList.remove('dual-board-mode');
-        const dualBoardContainer = document.getElementById('dual-board-container');
-        if (dualBoardContainer) {
-            dualBoardContainer.remove();
-        }
-    }
-    
-    // Jeśli jest aktywny RIT, nie renderuj normalnie - dual board zajmuje się tym
-    if (ritActive) {
-        return;
-    }
-    
     communityCardsEl.innerHTML = '';
     
     // Zabezpieczenie - upewnij się że highlightCards to tablica
@@ -939,12 +842,8 @@ function renderCommunityCards(cards, highlightCards = []) {
 
 // ============== DUAL BOARD FUNCTIONS ==============
 function resetDualBoard() {
-    
     // Reset licznika kart community (dla animacji)
     previousCommunityCardsCount = 0;
-    
-    // Reset Run It Twice
-    resetDualBoard();
 }
 
 function renderYourCards(cards, highlightCards = []) {
@@ -963,6 +862,112 @@ function renderYourCards(cards, highlightCards = []) {
     } else {
         yourCardsEl.appendChild(createCardBackElement());
         yourCardsEl.appendChild(createCardBackElement());
+    }
+}
+
+// ============== TURN TIMER FUNCTIONS ==============
+function startClientTurnTimer(playerId, expiresAt) {
+    stopClientTurnTimer();
+    
+    turnTimerPlayerId = playerId;
+    turnTimerExpiresAt = expiresAt;
+    
+    turnTimerInterval = setInterval(() => {
+        updateTurnTimerDisplay();
+    }, 100);
+    
+    updateTurnTimerDisplay();
+}
+
+function stopClientTurnTimer() {
+    if (turnTimerInterval) {
+        clearInterval(turnTimerInterval);
+        turnTimerInterval = null;
+    }
+    turnTimerPlayerId = null;
+    turnTimerExpiresAt = null;
+    
+    // Usuń wszystkie paski timera i teksty
+    document.querySelectorAll('.turn-timer-bar').forEach(el => el.remove());
+    document.querySelectorAll('.turn-timer-text').forEach(el => el.remove());
+    
+    // Usuń efekt pulsowania
+    const pokerTable = document.getElementById('poker-table');
+    if (pokerTable) {
+        pokerTable.classList.remove('timer-critical');
+    }
+    
+    // Usuń klasy timer-critical z graczy
+    document.querySelectorAll('.player-box.timer-critical').forEach(el => {
+        el.classList.remove('timer-critical');
+    });
+}
+
+function updateTurnTimerDisplay() {
+    if (!turnTimerExpiresAt || !turnTimerPlayerId) return;
+    
+    const timeLeft = Math.max(0, turnTimerExpiresAt - Date.now());
+    const totalTime = currentGameState?.config?.turnTimeout * 1000 || 15000;
+    const percentage = (timeLeft / totalTime) * 100;
+    const secondsLeft = Math.ceil(timeLeft / 1000);
+    
+    // Znajdź element gracza z timerem
+    const playerBoxes = document.querySelectorAll('.player-box');
+    playerBoxes.forEach(box => {
+        const seat = box.closest('.player-seat');
+        if (!seat) return;
+        
+        const seatIndex = parseInt(seat.dataset.seat);
+        const player = currentGameState?.players?.[seatIndex];
+        
+        if (player?.id === turnTimerPlayerId) {
+            // Dodaj lub zaktualizuj pasek timera
+            let timerBar = box.querySelector('.turn-timer-bar');
+            if (!timerBar) {
+                timerBar = document.createElement('div');
+                timerBar.className = 'turn-timer-bar';
+                box.insertBefore(timerBar, box.firstChild);
+            }
+            
+            timerBar.style.width = `${percentage}%`;
+            
+            // Dodaj lub zaktualizuj tekst z sekundami
+            let timerText = box.querySelector('.turn-timer-text');
+            if (!timerText) {
+                timerText = document.createElement('div');
+                timerText.className = 'turn-timer-text';
+                box.appendChild(timerText);
+            }
+            timerText.textContent = `${secondsLeft}s`;
+            
+            // Dodaj klasę critical dla ostatnich 5 sekund
+            if (secondsLeft <= 5) {
+                timerBar.classList.add('critical');
+                timerText.classList.add('critical');
+                box.classList.add('timer-critical');
+            } else {
+                timerBar.classList.remove('critical');
+                timerText.classList.remove('critical');
+                box.classList.remove('timer-critical');
+            }
+        } else {
+            // Usuń pasek i tekst z innych graczy
+            const existingBar = box.querySelector('.turn-timer-bar');
+            const existingText = box.querySelector('.turn-timer-text');
+            if (existingBar) existingBar.remove();
+            if (existingText) existingText.remove();
+            box.classList.remove('timer-critical');
+        }
+    });
+    
+    // Efekt pulsowania stołu na ostatnie 5 sekund
+    const pokerTable = document.getElementById('poker-table');
+    if (pokerTable) {
+        if (secondsLeft <= 5 && secondsLeft > 0) {
+            pokerTable.classList.add('timer-critical');
+        } else {
+            pokerTable.classList.remove('timer-critical');
+        }
     }
 }
 
@@ -1208,10 +1213,6 @@ function updateGameSpectatorsList(spectators) {
 
 // ============== GAME ACTIONS ==============
 btnFold.addEventListener('click', () => {
-    // Zapisz karty przed foldem aby móc je pokazać później
-    if (currentGameState && currentGameState.yourCards) {
-        myFoldedCards = [...currentGameState.yourCards];
-    }
     socket.emit('playerAction', { action: 'fold' });
     closeRaisePanel();
 });
@@ -1357,12 +1358,15 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
     showToast('Rozłączono z serwerem!', 'error');
+    resetClientState();
     showScreen(mainMenu);
 });
 
 socket.on('lobbyCreated', (data) => {
     currentLobbyCode = data.code;
     isHost = true;
+    isSpectator = false; // Host nigdy nie jest spectatorem
+    isPendingJoin = false;
     gameCodeValue.textContent = data.code;
     showScreen(lobbyScreen);
     showToast(`Lobby utworzone! Kod: ${data.code}`, 'success');
@@ -1371,6 +1375,8 @@ socket.on('lobbyCreated', (data) => {
 socket.on('joinedLobby', (data) => {
     currentLobbyCode = data.code;
     isSpectator = data.isSpectator;
+    isHost = false; // Dołączający nie jest hostem
+    isPendingJoin = false; // Resetuj stan oczekiwania
     gameCodeValue.textContent = data.code;
     
     // Jeśli gra już trwa, od razu przejdź do ekranu gry
@@ -1399,24 +1405,13 @@ socket.on('gameStarted', () => {
 });
 
 socket.on('gameState', (state) => {
-    // Reset dual board przy nowej fazie (preflop = nowe rozdanie)
+    // Reset przy nowej fazie (preflop = nowe rozdanie)
     if (state.phase === 'preflop' && currentGameState?.phase !== 'preflop') {
-        // Reset dual board jeśli był aktywny RIT
-        if (ritActive) {
-            resetDualBoard();
-        }
+        resetDualBoard();
         // Czyść zwycięzców z poprzedniego rozdania
         currentWinners = [];
         // Czyść ostatnie akcje graczy
         playerLastActions = {};
-        // Czyść zapisane karty sfoldowanego gracza
-        myFoldedCards = null;
-        hideShowCardsButtons();
-    }
-    
-    // Reset dual board jeśli RIT się skończył (runItTwice = false a był true)
-    if (!state.runItTwice && currentGameState?.runItTwice) {
-        resetDualBoard();
     }
     
     // Jeśli gra jest w toku a jesteśmy na innym ekranie niż gameScreen - przełącz
@@ -1426,19 +1421,21 @@ socket.on('gameState', (state) => {
     
     updateGameState(state);
     
-    // Obsługa timera z gameState (dla reconnect/refresh)
-    if (state.turnTimer) {
-        startClientTurnTimer(state.turnTimer.playerId, state.turnTimer.expiresAt, state.turnTimer.duration);
-    } else {
-        stopClientTurnTimer();
-    }
-    
     // Obsługa Bomb Pot UI
     updateBombPotPanel(state);
     
     // Aktualizuj listę widzów podczas gry
     if (state.spectators) {
         updateGameSpectatorsList(state.spectators);
+    }
+    
+    // Obsługa Turn Timer z gameState (synchronizacja przy reconnect)
+    if (state.turnTimer && state.turnTimer.playerId && state.turnTimer.expiresAt > Date.now()) {
+        if (turnTimerPlayerId !== state.turnTimer.playerId) {
+            startClientTurnTimer(state.turnTimer.playerId, state.turnTimer.expiresAt);
+        }
+    } else if (!state.turnTimer && turnTimerInterval) {
+        stopClientTurnTimer();
     }
     
     // Oznacz stół jako Bomb Pot
@@ -1593,10 +1590,12 @@ socket.on('playerAction', (data) => {
 
 // ============== TURN TIMER EVENTS ==============
 socket.on('turnTimerStarted', (data) => {
-    startClientTurnTimer(data.playerId, data.expiresAt, data.duration);
+    console.log('[TURN-TIMER] Timer started for', data.playerId, 'expires at', data.expiresAt);
+    startClientTurnTimer(data.playerId, data.expiresAt);
 });
 
 socket.on('turnTimerCleared', () => {
+    console.log('[TURN-TIMER] Timer cleared');
     stopClientTurnTimer();
 });
 
@@ -1643,92 +1642,13 @@ socket.on('roundEnd', (data) => {
     
     addLogEntry(data.message, 'success');
     
-    // === SHOW CARDS - jeśli wygrana przez fold i ja jestem zwycięzcą ===
-    if (data.wonByFold && data.winners.length === 1 && data.winners[0].id === myPlayerId) {
-        showShowCardsButtons();
-    }
-    
-    // === SHOW CARDS - jeśli gracz sfoldował i ma zapisane karty ===
-    if (myFoldedCards && myFoldedCards.length === 2) {
-        showShowCardsButtons();
-    }
-    
     // Automatyczne wyczyszczenie podświetlenia po 5 sekundach
     setTimeout(() => {
         currentWinners = [];
-        hideShowCardsButtons();
         if (currentGameState && currentGameState.players) {
             renderPlayers(currentGameState.players);
         }
     }, 5000);
-});
-
-// ============== SHOW CARDS FUNCTIONS ==============
-function showShowCardsButtons() {
-    if (showCardsContainer) {
-        canShowCards = true;
-        showCardsContainer.classList.remove('hidden');
-        
-        // Automatyczne ukrycie po 6 sekundach
-        if (showCardsTimeout) clearTimeout(showCardsTimeout);
-        showCardsTimeout = setTimeout(() => {
-            hideShowCardsButtons();
-        }, 6000);
-    }
-}
-
-function hideShowCardsButtons() {
-    if (showCardsContainer) {
-        canShowCards = false;
-        showCardsContainer.classList.add('hidden');
-        if (showCardsTimeout) {
-            clearTimeout(showCardsTimeout);
-            showCardsTimeout = null;
-        }
-    }
-}
-
-// Event listenery dla przycisków Show/Muck
-if (btnShowCards) {
-    btnShowCards.addEventListener('click', () => {
-        if (canShowCards) {
-            // Jeśli gracz sfoldował, wyślij sfoldowane karty
-            if (myFoldedCards && myFoldedCards.length === 2) {
-                socket.emit('revealHand', { foldedCards: myFoldedCards });
-                myFoldedCards = null; // Wyczyść po pokazaniu
-            } else {
-                socket.emit('revealHand');
-            }
-            hideShowCardsButtons();
-        }
-    });
-}
-
-if (btnMuckCards) {
-    btnMuckCards.addEventListener('click', () => {
-        hideShowCardsButtons();
-        addLogEntry('Ukryłeś swoje karty.', 'info');
-    });
-}
-
-// Handler dla kart pokazanych przez zwycięzcę
-socket.on('cardsRevealed', (data) => {
-    console.log('[CARDS REVEALED]', data);
-    
-    // Zaktualizuj karty gracza w renderze
-    if (currentGameState && currentGameState.players) {
-        const player = currentGameState.players.find(p => p.id === data.playerId);
-        if (player) {
-            player.cards = data.cards;
-            renderPlayers(currentGameState.players);
-        }
-    }
-    
-    addLogEntry(`🃏 ${data.playerName} pokazał swoje karty!`, 'info');
-    
-    if (data.playerId !== myPlayerId) {
-        showToast(`🃏 ${data.playerName} pokazał karty!`, 'info');
-    }
 });
 
 // Helper function dla symboli kolorów
@@ -1761,310 +1681,6 @@ socket.on('allInCardDealt', (data) => {
     
     addLogEntry(`📤 ${phaseNames[data.phase] || data.phase} wykładany...`, 'info');
 });
-
-// ============== RUN IT TWICE EVENTS ==============
-socket.on('runItTwiceVoteStarted', (data) => {
-    console.log('[RIT] Głosowanie rozpoczęte', data);
-    
-    ritVoteActive = true;
-    ritVoteExpiresAt = data.expiresAt;
-    ritMyVote = null;
-    
-    // Sprawdź czy jestem uczestnikiem głosowania
-    const isParticipant = data.players.some(p => p.id === myPlayerId);
-    
-    showToast('🔄 Run It Twice? Głosowanie rozpoczęte!', 'warning');
-    addLogEntry('🔄 Run It Twice - Głosowanie rozpoczęte!', 'info');
-    
-    // Pokaż panel głosowania RIT
-    showRunItTwiceVotePanel(isParticipant, data.expiresAt);
-});
-
-socket.on('runItTwiceVoteUpdate', (data) => {
-    console.log('[RIT] Update głosowania', data);
-    
-    const ritVotedCount = document.getElementById('rit-voted-count');
-    const ritTotalVoters = document.getElementById('rit-total-voters');
-    
-    if (ritVotedCount) ritVotedCount.textContent = data.votedCount;
-    if (ritTotalVoters) ritTotalVoters.textContent = data.totalVoters;
-});
-
-socket.on('runItTwiceVoteResult', (data) => {
-    console.log('[RIT] Wynik głosowania:', data);
-    
-    ritVoteActive = false;
-    stopRitVoteTimer();
-    hideRunItTwiceVotePanel();
-    
-    showToast(data.message, data.approved ? 'success' : 'info');
-    addLogEntry(data.message, data.approved ? 'success' : 'info');
-});
-
-socket.on('runItTwiceStarted', (data) => {
-    console.log('[RIT] Run It Twice rozpoczęte!', data);
-    
-    ritActive = true;
-    ritBoard1 = [...data.currentBoard];
-    ritBoard2 = [...data.currentBoard];
-    
-    showToast(`🔄 Run It Twice! Pula A: ${data.potA} | Pula B: ${data.potB}`, 'success');
-    addLogEntry(`🔄 Run It Twice! Pula podzielona na ${data.potA} i ${data.potB}`, 'success');
-    
-    // Pokaż podwójny board
-    renderDualBoard(ritBoard1, ritBoard2);
-});
-
-socket.on('runItTwiceCard', (data) => {
-    console.log(`[RIT] Karta run ${data.run}, index ${data.cardIndex}:`, data.card);
-    
-    if (data.run === 1) {
-        ritBoard1 = data.board;
-    } else {
-        ritBoard2 = data.board;
-    }
-    
-    // Animacja wykładania karty
-    renderDualBoard(ritBoard1, ritBoard2, data.run, data.cardIndex);
-});
-
-socket.on('runItTwiceResult', (data) => {
-    console.log('[RIT] Wyniki:', data);
-    
-    ritBoard1 = data.board1;
-    ritBoard2 = data.board2;
-    
-    // Pokaż zwycięzców na obu boardach
-    renderDualBoardWithWinners(data.board1, data.board2, data.winners1, data.winners2);
-    
-    // Toast z wynikami
-    showToast(data.message, 'success');
-    addLogEntry(data.message, 'success');
-    
-    // Zapisz zwycięzców
-    currentWinners = [...data.winners1, ...data.winners2];
-    
-    // UWAGA: Reset dual board nastąpi automatycznie przy nowym gameState (preflop)
-    // lub gdy runItTwice zmieni się na false - obsługiwane w socket.on('gameState')
-});
-
-// ============== RUN IT TWICE UI FUNCTIONS ==============
-function showRunItTwiceVotePanel(isParticipant, expiresAt) {
-    // Utwórz panel głosowania jeśli nie istnieje
-    let ritPanel = document.getElementById('rit-vote-panel');
-    if (!ritPanel) {
-        ritPanel = document.createElement('div');
-        ritPanel.id = 'rit-vote-panel';
-        ritPanel.className = 'rit-vote-panel';
-        document.body.appendChild(ritPanel);
-    }
-    
-    const timeLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-    
-    ritPanel.innerHTML = `
-        <div class="rit-vote-content">
-            <h3>🔄 Run It Twice?</h3>
-            <p>Czy chcesz wyłożyć karty dwukrotnie i podzielić pulę?</p>
-            <div class="rit-vote-timer">
-                Pozostało: <span id="rit-timer-display">${timeLeft}</span>s
-            </div>
-            <div class="rit-vote-status">
-                Głosy: <span id="rit-voted-count">0</span> / <span id="rit-total-voters">?</span>
-            </div>
-            ${isParticipant ? `
-                <div class="rit-vote-buttons" id="rit-vote-buttons">
-                    <button class="btn btn-success" id="btn-rit-yes">✓ TAK</button>
-                    <button class="btn btn-danger" id="btn-rit-no">✗ NIE</button>
-                </div>
-                <div class="rit-voted-status hidden" id="rit-voted-status">
-                    Zagłosowałeś: <span id="rit-my-vote"></span>
-                </div>
-            ` : `
-                <div class="rit-spectator-info">Oczekiwanie na decyzję graczy...</div>
-            `}
-        </div>
-    `;
-    
-    ritPanel.classList.remove('hidden');
-    
-    // Dodaj event listenery dla przycisków
-    if (isParticipant) {
-        const btnYes = document.getElementById('btn-rit-yes');
-        const btnNo = document.getElementById('btn-rit-no');
-        
-        if (btnYes) {
-            btnYes.addEventListener('click', () => {
-                socket.emit('castRunItTwiceVote', { vote: true });
-                showRitVoted(true);
-            });
-        }
-        
-        if (btnNo) {
-            btnNo.addEventListener('click', () => {
-                socket.emit('castRunItTwiceVote', { vote: false });
-                showRitVoted(false);
-            });
-        }
-    }
-    
-    // Start timer
-    startRitVoteTimer(expiresAt);
-}
-
-function showRitVoted(vote) {
-    const buttons = document.getElementById('rit-vote-buttons');
-    const votedStatus = document.getElementById('rit-voted-status');
-    const myVote = document.getElementById('rit-my-vote');
-    
-    if (buttons) buttons.classList.add('hidden');
-    if (votedStatus) votedStatus.classList.remove('hidden');
-    if (myVote) {
-        myVote.textContent = vote ? '✓ TAK' : '✗ NIE';
-        myVote.style.color = vote ? '#2ecc71' : '#e74c3c';
-    }
-    
-    ritMyVote = vote;
-}
-
-function hideRunItTwiceVotePanel() {
-    const ritPanel = document.getElementById('rit-vote-panel');
-    if (ritPanel) {
-        ritPanel.classList.add('hidden');
-    }
-    stopRitVoteTimer();
-}
-
-function startRitVoteTimer(expiresAt) {
-    stopRitVoteTimer();
-    
-    ritVoteExpiresAt = expiresAt;
-    
-    ritVoteTimerInterval = setInterval(() => {
-        const timeLeft = Math.max(0, Math.ceil((ritVoteExpiresAt - Date.now()) / 1000));
-        const timerDisplay = document.getElementById('rit-timer-display');
-        if (timerDisplay) {
-            timerDisplay.textContent = timeLeft;
-        }
-        
-        if (timeLeft <= 0) {
-            stopRitVoteTimer();
-        }
-    }, 100);
-}
-
-function stopRitVoteTimer() {
-    if (ritVoteTimerInterval) {
-        clearInterval(ritVoteTimerInterval);
-        ritVoteTimerInterval = null;
-    }
-}
-
-// ============== DUAL BOARD RENDERING ==============
-function renderDualBoard(board1, board2, highlightRun = null, highlightIndex = null) {
-    // Sprawdź czy nie ma już kontenera na podwójny board
-    let dualBoardContainer = document.getElementById('dual-board-container');
-    
-    if (!dualBoardContainer) {
-        // Zamień standardowy kontener na podwójny
-        communityCardsEl.innerHTML = '';
-        communityCardsEl.classList.add('dual-board-mode');
-        
-        dualBoardContainer = document.createElement('div');
-        dualBoardContainer.id = 'dual-board-container';
-        dualBoardContainer.className = 'dual-board-container';
-        
-        dualBoardContainer.innerHTML = `
-            <div class="board-row board-row-1">
-                <span class="board-label">Board 1</span>
-                <div class="board-cards" id="board1-cards"></div>
-            </div>
-            <div class="board-row board-row-2">
-                <span class="board-label">Board 2</span>
-                <div class="board-cards" id="board2-cards"></div>
-            </div>
-        `;
-        
-        communityCardsEl.appendChild(dualBoardContainer);
-    }
-    
-    const board1Container = document.getElementById('board1-cards');
-    const board2Container = document.getElementById('board2-cards');
-    
-    if (board1Container) {
-        renderBoardRow(board1Container, board1, highlightRun === 1 ? highlightIndex : null);
-    }
-    
-    if (board2Container) {
-        renderBoardRow(board2Container, board2, highlightRun === 2 ? highlightIndex : null);
-    }
-}
-
-function renderBoardRow(container, cards, highlightIndex) {
-    container.innerHTML = '';
-    
-    for (let i = 0; i < 5; i++) {
-        if (cards && cards[i]) {
-            const card = cards[i];
-            const cardEl = createCardElement(card, 'normal', false);
-            
-            // Animacja dla nowo wyłożonej karty
-            if (highlightIndex !== null && i === highlightIndex) {
-                cardEl.classList.add('card-dealing');
-            }
-            
-            container.appendChild(cardEl);
-        } else {
-            const placeholder = document.createElement('div');
-            placeholder.className = 'card card-placeholder';
-            container.appendChild(placeholder);
-        }
-    }
-}
-
-function renderDualBoardWithWinners(board1, board2, winners1, winners2) {
-    renderDualBoard(board1, board2);
-    
-    // Dodaj informacje o zwycięzcach
-    const board1Row = document.querySelector('.board-row-1');
-    const board2Row = document.querySelector('.board-row-2');
-    
-    if (board1Row && winners1.length > 0) {
-        const existingWinner1 = board1Row.querySelector('.board-winner');
-        if (existingWinner1) existingWinner1.remove();
-        
-        const winnerInfo1 = document.createElement('div');
-        winnerInfo1.className = 'board-winner';
-        winnerInfo1.innerHTML = `🏆 ${winners1.map(w => w.name).join(', ')} (${winners1[0].hand}) - ${winners1[0].amount}`;
-        board1Row.appendChild(winnerInfo1);
-    }
-    
-    if (board2Row && winners2.length > 0) {
-        const existingWinner2 = board2Row.querySelector('.board-winner');
-        if (existingWinner2) existingWinner2.remove();
-        
-        const winnerInfo2 = document.createElement('div');
-        winnerInfo2.className = 'board-winner';
-        winnerInfo2.innerHTML = `🏆 ${winners2.map(w => w.name).join(', ')} (${winners2[0].hand}) - ${winners2[0].amount}`;
-        board2Row.appendChild(winnerInfo2);
-    }
-    
-    // Zapisz zwycięzców do podświetlenia
-    currentWinners = [...winners1, ...winners2];
-}
-
-function resetDualBoard() {
-    ritActive = false;
-    ritBoard1 = [];
-    ritBoard2 = [];
-    currentWinners = []; // Czyść zwycięzców przy resetowaniu dual board
-    
-    communityCardsEl.classList.remove('dual-board-mode');
-    
-    const dualBoardContainer = document.getElementById('dual-board-container');
-    if (dualBoardContainer) {
-        dualBoardContainer.remove();
-    }
-}
 
 socket.on('error', (data) => {
     console.log('[ERROR] Błąd z serwera:', data.message);
