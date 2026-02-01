@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🃏 Super Poker - Texas Hold'em</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Ekran główny - wybór akcji -->
+    <div id="main-menu" class="screen">
+        <div class="menu-container">
+            <!-- Logo section -->
+            <div class="logo-section">
+                <img src="logo.png" alt="Super Poker Logo" class="logo-image">
+                <h1 class="logo-title">SuperPoker</h1>
+                <p class="logo-subtitle">każdą rękę gra się inaczej.</p>
+            </div>
+            
+            <div class="menu-buttons-grid">
+                <button id="btn-create-lobby" class="btn-menu-tile">
+                    <div class="tile-icon">🎮</div>
+                    <div class="tile-label">Stwórz<br>Lobby</div>
+                    <div class="tile-glow"></div>
+                </button>
+                <button id="btn-join-lobby" class="btn-menu-tile">
+                    <div class="tile-icon">🚀</div>
+                    <div class="tile-label">Dołącz<br>do Lobby</div>
+                    <div class="tile-glow"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ekran tworzenia/dołączania do lobby -->
+    <div id="lobby-join-screen" class="screen hidden">
+        <div class="login-container">
+            <button id="btn-back-to-menu" class="btn-back">← Powrót</button>
+            
+            <h2 id="lobby-action-title">Dołącz do Lobby</h2>
+            
+            <div class="login-form">
+                <input type="text" id="player-name" placeholder="Twój nick..." maxlength="15" autocomplete="off">
+                
+                <div id="join-code-section">
+                    <input type="text" id="lobby-code-input" placeholder="Kod lobby (6 znaków)" maxlength="6" autocomplete="off" style="text-transform: uppercase;">
+                </div>
+                
+                <button id="btn-confirm-lobby" class="btn btn-primary">Dołącz</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ekran Lobby (poczekalnia) -->
+    <div id="lobby-screen" class="screen hidden">
+        <div class="lobby-container-new">
+            <!-- Header z kodem -->
+            <div class="lobby-header-new">
+                <div class="lobby-title">
+                    <span class="lobby-icon">🎰</span>
+                    <h2>Lobby</h2>
+                </div>
+                <div class="lobby-code-box" id="lobby-code-box" title="Kliknij aby skopiować">
+                    <span class="code-label">KOD</span>
+                    <span id="lobby-code" class="code-value">------</span>
+                    <span class="code-copy-hint">📋 kliknij aby skopiować</span>
+                </div>
+            </div>
+            
+            <div class="lobby-main">
+                <!-- Lewa kolumna - Ustawienia -->
+                <div class="lobby-settings">
+                    <div class="settings-section">
+                        <h3>💰 Blindy i Stack</h3>
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Small Blind</label>
+                                <input type="number" id="config-small-blind" value="10" min="1">
+                            </div>
+                            <div class="setting-item">
+                                <label>Big Blind</label>
+                                <input type="number" id="config-big-blind" value="20" min="2">
+                            </div>
+                            <div class="setting-item setting-full">
+                                <label>Starting Stack</label>
+                                <input type="number" id="config-starting-chips" value="1000" min="100" step="100">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>⚡ Funkcje specjalne</h3>
+                        <div class="feature-toggles">
+                            <div class="feature-toggle" id="toggle-bb-ante">
+                                <input type="checkbox" id="config-bb-ante-enabled" hidden>
+                                <div class="toggle-content">
+                                    <span class="toggle-icon">🎯</span>
+                                    <span class="toggle-name">BB Ante</span>
+                                    <span class="toggle-status">wyłączono</span>
+                                </div>
+                            </div>
+                            <div class="feature-toggle" id="toggle-bomb-pot">
+                                <input type="checkbox" id="config-bomb-pot-enabled" checked hidden>
+                                <div class="toggle-content">
+                                    <span class="toggle-icon">💣</span>
+                                    <span class="toggle-name">Bomb Pot</span>
+                                    <span class="toggle-status">włączono</span>
+                                </div>
+                            </div>
+                            <div class="feature-toggle active" id="toggle-run-it-twice">
+                                <input type="checkbox" id="config-run-it-twice-enabled" checked hidden>
+                                <div class="toggle-content">
+                                    <span class="toggle-icon">🔄</span>
+                                    <span class="toggle-name">Run It Twice</span>
+                                    <span class="toggle-status">włączono</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ante-amount-row" id="bb-ante-amount-group" style="display: none;">
+                            <label>Wartość BB Ante</label>
+                            <input type="number" id="config-bb-ante-amount" value="20" min="1">
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>🎨 Styl kart</h3>
+                        <div class="card-skin-selector">
+                            <div class="skin-option selected" data-skin="classic">
+                                <div class="skin-preview">
+                                    <div class="preview-card red">A♥</div>
+                                    <div class="preview-card black">K♠</div>
+                                </div>
+                                <span class="skin-name">Klasyczna</span>
+                            </div>
+                            <div class="skin-option" data-skin="colorful">
+                                <div class="skin-preview">
+                                    <div class="preview-card" style="color: #dc3545;">A♥</div>
+                                    <div class="preview-card" style="color: #198754;">K♣</div>
+                                </div>
+                                <span class="skin-name">4 kolory</span>
+                            </div>
+                            <div class="skin-option" data-skin="dark">
+                                <div class="skin-preview dark-preview">
+                                    <div class="preview-card">A♥</div>
+                                    <div class="preview-card">K♠</div>
+                                </div>
+                                <span class="skin-name">Ciemna</span>
+                            </div>
+                        </div>
+                        <input type="hidden" id="config-card-skin" value="classic">
+                    </div>
+                </div>
+                
+                <!-- Prawa kolumna - Gracze -->
+                <div class="lobby-players">
+                    <div class="players-section">
+                        <h3>👥 Gracze <span class="player-count">(<span id="players-count">0</span>/<span id="max-players">8</span>)</span></h3>
+                        <ul id="lobby-players-list" class="players-list-new"></ul>
+                    </div>
+                    
+                    <div class="spectators-section">
+                        <h3>👁️ Obserwatorzy <span class="spectator-count">(<span id="spectators-count">0</span>)</span></h3>
+                        <ul id="lobby-spectators-list" class="players-list-new spectators"></ul>
+                    </div>
+                    
+                    <div class="role-buttons">
+                        <button id="btn-become-spectator" class="btn btn-role hidden">
+                            👁️ Zostań obserwatorem
+                        </button>
+                        <button id="btn-become-player" class="btn btn-role hidden">
+                            🎮 Dołącz do gry
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer -->
+            <div class="lobby-footer-new">
+                <div id="lobby-status" class="lobby-status-new">Oczekiwanie na graczy...</div>
+                <div class="lobby-actions">
+                    <button id="btn-leave-lobby" class="btn btn-leave">
+                        🚪 Opuść lobby
+                    </button>
+                    <button id="btn-start-game" class="btn btn-start hidden" disabled>
+                        🎮 Rozpocznij grę
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ekran gry -->
+    <div id="game-screen" class="screen hidden">
+        <!-- Przycisk opuszczenia w rogu -->
+        <button id="btn-leave-game-corner" class="btn-leave-corner" title="Opuść lobby">
+            🚪 Opuść lobby 
+        </button>
+        
+        <!-- Kod gry w rogu -->
+        <div id="game-code-display" class="game-code-display" title="Kliknij aby skopiować">
+            <span class="game-code-label">KOD:</span>
+            <span id="game-code-value" class="game-code-value">------</span>
+        </div>
+        
+        <!-- Modal potwierdzenia opuszczenia -->
+        <div id="leave-confirm-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3>🚪 Opuść lobby</h3>
+                <p>Czy na pewno chcesz opuścić lobby?</p>
+                <div class="modal-buttons">
+                    <button id="btn-confirm-leave" class="btn btn-danger">Tak, opuść</button>
+                    <button id="btn-cancel-leave" class="btn btn-secondary">Anuluj</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Info o obserwatorze -->
+        <div id="spectator-banner" class="spectator-banner hidden">
+            <span id="spectator-text">👁️ Obserwujesz grę</span>
+            <button id="btn-join-game" class="btn btn-small btn-primary hidden">Dołącz do gry</button>
+            <button id="btn-cancel-join" class="btn btn-small btn-secondary hidden">Anuluj oczekiwanie</button>
+            <button id="btn-leave-game" class="btn btn-small btn-danger">🚪 Opuść</button>
+        </div>
+        
+        <!-- Panel głosowania Bomb Pot -->
+        <div id="bomb-pot-panel" class="bomb-pot-panel hidden">
+            <div class="bomb-pot-content">
+                <!-- Panel startowania głosowania -->
+                <div id="bomb-pot-start" class="bomb-pot-section">
+                    <h4>💣 Bomb Pot</h4>
+                    <div class="bomb-pot-stake-input">
+                        <label>Stawka:</label>
+                        <input type="number" id="bomb-pot-stake" min="20" step="10" value="100">
+                    </div>
+                    <button id="btn-start-bomb-pot-vote" class="btn btn-warning">
+                        🗳️ Rozpocznij głosowanie
+                    </button>
+                </div>
+                
+                <!-- Panel głosowania (widoczny podczas aktywnego głosowania) -->
+                <div id="bomb-pot-voting" class="bomb-pot-section hidden">
+                    <h4>💣 Głosowanie Bomb Pot</h4>
+                    <div class="bomb-pot-info">
+                        <span class="bomb-pot-initiator"></span>
+                        <span class="bomb-pot-stake-display">Stawka: <strong id="bomb-pot-vote-stake">0</strong></span>
+                    </div>
+                    <div class="bomb-pot-timer">
+                        Pozostało: <span id="bomb-pot-timer-display">30</span>s
+                    </div>
+                    <div class="bomb-pot-votes-display">
+                        Głosy: <span id="bomb-pot-yes-votes">0</span> / <span id="bomb-pot-total-voters">0</span>
+                    </div>
+                    <div id="bomb-pot-vote-buttons" class="bomb-pot-vote-buttons">
+                        <button id="btn-bomb-pot-yes" class="btn btn-success">✓ TAK</button>
+                        <button id="btn-bomb-pot-no" class="btn btn-danger">✗ NIE</button>
+                    </div>
+                    <div id="bomb-pot-voted-status" class="bomb-pot-voted-status hidden">
+                        Zagłosowałeś: <span id="bomb-pot-my-vote"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Wrapper dla stołu - centrowanie -->
+        <div class="poker-table-wrapper">
+            <!-- Główny stół -->
+            <div class="poker-table">
+                <!-- Miejsca graczy (8 pozycji) -->
+                <div class="players-container">
+                <div class="player-seat" data-seat="0"></div>
+                <div class="player-seat" data-seat="1"></div>
+                <div class="player-seat" data-seat="2"></div>
+                <div class="player-seat" data-seat="3"></div>
+                <div class="player-seat" data-seat="4"></div>
+                <div class="player-seat" data-seat="5"></div>
+                <div class="player-seat" data-seat="6"></div>
+                <div class="player-seat" data-seat="7"></div>
+            </div>
+            
+            <!-- Środek stołu -->
+            <div class="table-center">
+                <!-- Karty wspólne -->
+                <div class="community-cards" id="community-cards">
+                    <div class="card card-placeholder"></div>
+                    <div class="card card-placeholder"></div>
+                    <div class="card card-placeholder"></div>
+                    <div class="card card-placeholder"></div>
+                    <div class="card card-placeholder"></div>
+                </div>
+                
+                <!-- Pula -->
+                <div class="pot-container">
+                    <span class="pot-label">Pula:</span>
+                    <span class="pot-amount" id="pot-amount">0</span>
+                </div>
+                
+                <!-- Side Pots -->
+                <div class="side-pots-container hidden" id="side-pots-container"></div>
+                
+                <!-- Faza gry -->
+                <div class="phase-indicator" id="phase-indicator">Oczekiwanie...</div>
+            </div>
+        </div>
+        </div> <!-- Koniec poker-table-wrapper -->
+        
+        <!-- Panel gracza -->
+        <div id="player-panel" class="player-panel">
+            <!-- Twoje karty -->
+            <div class="your-cards-container">
+                <h3>Twoje karty</h3>
+                <div class="your-cards" id="your-cards">
+                    <div class="card card-back"></div>
+                    <div class="card card-back"></div>
+                </div>
+                <div class="your-hand" id="your-hand"></div>
+            </div>
+            
+            <!-- Twoje info -->
+            <div class="your-info">
+                <div class="your-name" id="your-name">-</div>
+                <div class="your-chips">
+                    <span class="chip-icon">🪙</span>
+                    <span id="your-chips">0</span>
+                </div>
+            </div>
+            
+            <!-- Przyciski akcji -->
+            <div class="action-buttons" id="action-buttons">
+                <button class="btn btn-fold" id="btn-fold" disabled>
+                    <span class="btn-icon">❌</span>
+                    <span>Fold</span>
+                </button>
+                <button class="btn btn-check" id="btn-check" disabled>
+                    <span class="btn-icon">✓</span>
+                    <span>Check</span>
+                </button>
+                <button class="btn btn-call" id="btn-call" disabled>
+                    <span class="btn-icon">📞</span>
+                    <span>Call</span>
+                    <span class="call-amount" id="call-amount"></span>
+                </button>
+                <button class="btn btn-bet" id="btn-bet" disabled>
+                    <span class="btn-icon">💰</span>
+                    <span id="bet-label">Bet</span>
+                </button>
+            </div>
+            
+            <!-- Panel Raise/Bet ze sliderem -->
+            <div class="raise-panel hidden" id="raise-panel">
+                <div class="raise-header">
+                    <span class="raise-title" id="raise-title">Raise</span>
+                    <button class="raise-close" id="raise-close">✕</button>
+                </div>
+                <div class="raise-amount-display">
+                    <span class="raise-label">Kwota:</span>
+                    <input type="number" id="bet-amount" class="bet-input" min="0" value="20">
+                </div>
+                <div class="raise-slider-container">
+                    <input type="range" id="bet-slider" class="bet-slider" min="0" max="1000" value="20">
+                    <div class="slider-labels">
+                        <span id="slider-min">Min</span>
+                        <span id="slider-max">Max</span>
+                    </div>
+                </div>
+                <div class="raise-presets">
+                    <button class="raise-preset" data-preset="min">Min</button>
+                    <button class="raise-preset" data-preset="1/3">⅓ Puli</button>
+                    <button class="raise-preset" data-preset="1/2">½ Puli</button>
+                    <button class="raise-preset" data-preset="3/4">¾ Puli</button>
+                    <button class="raise-preset" data-preset="pot">Pula</button>
+                    <button class="raise-preset raise-preset-allin" data-preset="allin">All-In</button>
+                </div>
+                <button class="btn btn-confirm-raise" id="btn-confirm-raise">
+                    <span class="btn-icon">✓</span>
+                    <span id="confirm-raise-label">Potwierdź Raise</span>
+                </button>
+            </div>
+            
+            <!-- Przycisk Pokaż Karty -->
+            <div id="show-cards-container" class="show-cards-container hidden">
+                <span class="show-cards-label">Pokaż karty?</span>
+                <button id="btn-show-cards" class="btn btn-show-cards">
+                    <span class="btn-icon">🃏</span>
+                    <span>Pokaż karty</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Log akcji -->
+        <div class="action-log" id="action-log">
+            <div class="log-header">Historia akcji</div>
+            <div class="log-content" id="log-content"></div>
+        </div>
+        
+        <!-- Lista obserwatorów podczas gry -->
+        <div class="game-spectators-panel hidden" id="game-spectators-panel">
+            <div class="spectators-header">
+                <span class="spectators-icon">👁️</span>
+                <span class="spectators-title">Obserwatorzy</span>
+                <span class="spectators-count" id="game-spectators-count">0</span>
+            </div>
+            <ul class="spectators-list" id="game-spectators-list"></ul>
+        </div>
+    </div>
+    
+    <!-- Toast notifications -->
+    <div id="toast-container"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
