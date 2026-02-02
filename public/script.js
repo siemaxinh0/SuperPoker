@@ -1926,6 +1926,14 @@ socket.on('joinedLobby', (data) => {
     if (data.isGameStarted) {
         showScreen(gameScreen);
         console.log('[JOIN] Dołączono do trwającej gry jako obserwator');
+        
+        // Pokaż banner obserwatora od razu (gameState go potem zaktualizuje)
+        if (isSpectator && spectatorBanner) {
+            spectatorBanner.classList.remove('hidden');
+            spectatorText.innerHTML = '👁️ Obserwujesz grę - ładowanie...';
+            btnJoinGame.classList.add('hidden');
+            btnCancelJoin.classList.add('hidden');
+        }
     } else {
         showScreen(lobbyScreen);
     }
@@ -1977,6 +1985,11 @@ socket.on('gameState', (state) => {
     }
     
     updateGameState(state);
+    
+    // Aktualizuj UI bannera spectatora jeśli mamy dane lobby
+    if ((state.isSpectator || isSpectator) && window.currentLobbyState) {
+        updateSpectatorBannerButtons(window.currentLobbyState);
+    }
     
     // Obsługa Bomb Pot UI
     updateBombPotPanel(state);
