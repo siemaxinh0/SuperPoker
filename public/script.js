@@ -1577,6 +1577,15 @@ function renderPlayers(players) {
             blindBadgeHtml = '<div class="blind-badge bb">BB</div>';
         }
         
+        // Znacznik Straddle
+        let straddleBadgeHtml = '';
+        if (currentGameState && currentGameState.activeStraddles && currentGameState.activeStraddles.length > 0) {
+            const playerStraddle = currentGameState.activeStraddles.find(s => s.playerId === player.id);
+            if (playerStraddle) {
+                straddleBadgeHtml = `<div class="straddle-badge">${playerStraddle.amount}</div>`;
+            }
+        }
+        
         // Etykieta ostatniej akcji
         let actionLabelHtml = '';
         const lastAction = playerLastActions[player.id];
@@ -1631,6 +1640,7 @@ function renderPlayers(players) {
             <div class="${classes.join(' ')}">
                 ${player.isDealer ? '<div class="dealer-chip">D</div>' : ''}
                 ${blindBadgeHtml}
+                ${straddleBadgeHtml}
                 <div class="player-name">${player.name}${isMe ? ' (Ty)' : ''}</div>
                 <div class="player-chips">🪙 ${player.chips}</div>
                 ${player.currentBet > 0 ? `<div class="player-bet">Stawka: ${player.currentBet}</div>` : ''}

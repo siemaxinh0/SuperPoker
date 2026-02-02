@@ -138,42 +138,62 @@ function canDeclareStraddle(lobby, playerId) {
         return { allowed: false, reason: 'Już zadeklarowałeś Straddle' };
     }
     
+    // Znajdź najwyższy istniejący straddle
+    const allStraddles = [existingUTG, existingUTG1, existingUTG2, existingBTN].filter(Boolean);
+    const highestExisting = allStraddles.length > 0 
+        ? Math.max(...allStraddles.map(s => s.amount)) 
+        : 0;
+    
     // Oblicz wymaganą kwotę
     let requiredAmount = lobby.config.bigBlind * 2; // Bazowy straddle = 2x BB
     let isReStraddle = false;
     
+    // ZASADA: Tylko jeden gracz może dać straddle za daną kwotę
+    // Jeśli ktoś już dał straddle, następny musi dać 2x więcej
+    
     if (position === 'UTG') {
-        // UTG może zawsze stawiać straddle (jeśli nie ma jeszcze)
         if (existingUTG) {
             return { allowed: false, reason: 'UTG już zadeklarował Straddle' };
         }
-        requiredAmount = lobby.config.bigBlind * 2;
+        // Jeśli BTN już dał straddle, UTG musi dać re-straddle (2x BTN)
+        if (existingBTN) {
+            requiredAmount = existingBTN.amount * 2;
+            isReStraddle = true;
+        } else {
+            requiredAmount = lobby.config.bigBlind * 2;
+        }
     } else if (position === 'UTG+1') {
-        // UTG+1 może Re-Straddle tylko jeśli UTG zadeklarował
-        if (!existingUTG) {
-            return { allowed: false, reason: 'Czekaj aż UTG zadeklaruje Straddle' };
+        // UTG+1 może Re-Straddle tylko jeśli UTG lub BTN zadeklarował
+        if (!existingUTG && !existingBTN) {
+            return { allowed: false, reason: 'Czekaj aż UTG lub BTN zadeklaruje Straddle' };
         }
         if (existingUTG1) {
             return { allowed: false, reason: 'UTG+1 już zadeklarował Re-Straddle' };
         }
-        requiredAmount = existingUTG.amount * 2; // Re-Straddle = 2x poprzedni
+        // Re-Straddle = 2x najwyższego istniejącego
+        requiredAmount = highestExisting * 2;
         isReStraddle = true;
     } else if (position === 'UTG+2') {
         // UTG+2 może Re-Re-Straddle tylko jeśli UTG+1 zadeklarował
-        if (!existingUTG || !existingUTG1) {
-            return { allowed: false, reason: 'Czekaj na Straddle od UTG i UTG+1' };
+        if (!existingUTG1) {
+            return { allowed: false, reason: 'Czekaj aż UTG+1 zadeklaruje Re-Straddle' };
         }
         if (existingUTG2) {
             return { allowed: false, reason: 'UTG+2 już zadeklarował Re-Straddle' };
         }
-        requiredAmount = existingUTG1.amount * 2;
+        requiredAmount = highestExisting * 2;
         isReStraddle = true;
     } else if (position === 'BTN') {
-        // BTN może Button Straddle (niezależnie od UTG)
         if (existingBTN) {
             return { allowed: false, reason: 'BTN już zadeklarował Straddle' };
         }
-        requiredAmount = lobby.config.bigBlind * 2;
+        // Jeśli UTG już dał straddle, BTN musi dać re-straddle (2x UTG)
+        if (existingUTG) {
+            requiredAmount = existingUTG.amount * 2;
+            isReStraddle = true;
+        } else {
+            requiredAmount = lobby.config.bigBlind * 2;
+        }
     } else {
         return { allowed: false, reason: `Pozycja ${position} nie może Straddle` };
     }
