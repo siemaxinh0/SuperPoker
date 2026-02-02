@@ -272,11 +272,9 @@ const runItTwiceMyVote = document.getElementById('run-it-twice-my-vote');
 // ============== STRADDLE DOM ==============
 const straddlePanel = document.getElementById('straddle-panel');
 const straddleInfo = document.getElementById('straddle-info');
-const straddlePosition = document.getElementById('straddle-position');
 const straddleAmount = document.getElementById('straddle-amount');
 const straddlePendingList = document.getElementById('straddle-pending-list');
 const btnStraddle = document.getElementById('btn-straddle');
-const btnCancelStraddle = document.getElementById('btn-cancel-straddle');
 const straddleBtnText = document.getElementById('straddle-btn-text');
 const straddleStatus = document.getElementById('straddle-status');
 
@@ -1517,6 +1515,9 @@ function renderPlayers(players) {
         if (isMe) classes.push('is-you');
         if (isWinner) classes.push('winner-highlight');
         
+        // Klasa do przesunięcia timera gdy jest straddle badge - dodawana później
+        // Musimy najpierw obliczyć czy będzie straddle badge
+        
         // Pobierz highlightCards dla tego gracza (showdown)
         const playerHighlightCards = player.highlightCards || [];
         
@@ -1577,14 +1578,21 @@ function renderPlayers(players) {
             blindBadgeHtml = '<div class="blind-badge bb">BB</div>';
         }
         
-        // Znacznik Straddle
+        // Znacznik Straddle - tylko przed flopem (potem znika)
         let straddleBadgeHtml = '';
-        if (currentGameState && currentGameState.activeStraddles && currentGameState.activeStraddles.length > 0) {
+        const showStraddleBadge = currentGameState && 
+                                   currentGameState.phase === 'preflop' && 
+                                   currentGameState.activeStraddles && 
+                                   currentGameState.activeStraddles.length > 0;
+        if (showStraddleBadge) {
             const playerStraddle = currentGameState.activeStraddles.find(s => s.playerId === player.id);
             if (playerStraddle) {
                 straddleBadgeHtml = `<div class="straddle-badge">${playerStraddle.amount}</div>`;
             }
         }
+        
+        // Klasa do przesunięcia timera gdy jest straddle badge
+        const hasStraddleBadge = straddleBadgeHtml !== '';
         
         // Etykieta ostatniej akcji
         let actionLabelHtml = '';
@@ -1634,6 +1642,11 @@ function renderPlayers(players) {
                     </div>
                 `;
             }
+        }
+        
+        // Dodaj klasę has-straddle-badge jeśli gracz ma badge straddle
+        if (hasStraddleBadge) {
+            classes.push('has-straddle-badge');
         }
         
         seat.innerHTML = `
@@ -2336,9 +2349,6 @@ socket.on('straddleDeclared', (data) => {
         straddleStatus.className = 'straddle-status success';
     }
     
-    if (btnCancelStraddle) {
-        btnCancelStraddle.classList.remove('hidden');
-    }
     if (btnStraddle) {
         btnStraddle.disabled = true;
     }
@@ -2355,10 +2365,6 @@ socket.on('straddleCancelled', (data) => {
     if (straddleStatus) {
         straddleStatus.textContent = data.message || data.reason || 'Anulowano';
         straddleStatus.className = 'straddle-status';
-    }
-    
-    if (btnCancelStraddle) {
-        btnCancelStraddle.classList.add('hidden');
     }
     
     showToast(`🎲 Straddle anulowany: ${data.reason || data.message}`, 'info');
@@ -2380,7 +2386,6 @@ socket.on('straddlePosted', (data) => {
     if (data.playerId === myPlayerId) {
         hasStraddleDeclared = false;
         myStraddlePosition = null;
-        if (btnCancelStraddle) btnCancelStraddle.classList.add('hidden');
     }
 });
 
@@ -2413,17 +2418,6 @@ function updateStraddlePanel(state) {
     
     straddlePanel.classList.remove('hidden');
     
-    // Aktualizuj informacje o pozycji - wyświetl NASTĘPNĄ pozycję (dla której deklarujesz straddle)
-    if (straddlePosition) {
-        const posDisplay = straddleInfo.nextPosition || straddleInfo.position || '-';
-        straddlePosition.textContent = posDisplay;
-        
-        // Dodaj informację o obecnej pozycji w nawiasie jeśli różna
-        if (straddleInfo.currentPosition && straddleInfo.currentPosition !== posDisplay) {
-            straddlePosition.textContent = `${posDisplay} (teraz: ${straddleInfo.currentPosition})`;
-        }
-    }
-    
     // Aktualizuj kwotę
     if (straddleAmount) {
         straddleAmount.textContent = straddleInfo.amount ? `${straddleInfo.amount}` : '-';
@@ -2454,15 +2448,6 @@ function updateStraddlePanel(state) {
             } else {
                 straddleBtnText.textContent = 'Straddle';
             }
-        }
-    }
-    
-    // Pokaż/ukryj przycisk anulowania
-    if (btnCancelStraddle) {
-        if (hasStraddleDeclared || straddleInfo.hasStraddle) {
-            btnCancelStraddle.classList.remove('hidden');
-        } else {
-            btnCancelStraddle.classList.add('hidden');
         }
     }
     
@@ -2501,12 +2486,6 @@ function renderPendingStraddles(straddles) {
 if (btnStraddle) {
     btnStraddle.addEventListener('click', () => {
         socket.emit('declareStraddle');
-    });
-}
-
-if (btnCancelStraddle) {
-    btnCancelStraddle.addEventListener('click', () => {
-        socket.emit('cancelStraddle');
     });
 }
 
