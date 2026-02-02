@@ -269,6 +269,21 @@ const runItTwiceVoteButtons = document.getElementById('run-it-twice-vote-buttons
 const runItTwiceVotedStatus = document.getElementById('run-it-twice-voted-status');
 const runItTwiceMyVote = document.getElementById('run-it-twice-my-vote');
 
+// ============== STRADDLE DOM ==============
+const straddlePanel = document.getElementById('straddle-panel');
+const straddleInfo = document.getElementById('straddle-info');
+const straddlePosition = document.getElementById('straddle-position');
+const straddleAmount = document.getElementById('straddle-amount');
+const straddlePendingList = document.getElementById('straddle-pending-list');
+const btnStraddle = document.getElementById('btn-straddle');
+const btnCancelStraddle = document.getElementById('btn-cancel-straddle');
+const straddleBtnText = document.getElementById('straddle-btn-text');
+const straddleStatus = document.getElementById('straddle-status');
+
+// Straddle state
+let hasStraddleDeclared = false;
+let myStraddlePosition = null;
+
 // Current card skin
 let currentCardSkin = 'classic';
 
@@ -512,6 +527,8 @@ document.querySelectorAll('.feature-toggle').forEach(toggle => {
                 socket.emit('updateConfig', { bombPotEnabled: checkbox.checked });
             } else if (checkbox.id === 'config-run-it-twice-enabled') {
                 socket.emit('updateConfig', { runItTwiceEnabled: checkbox.checked });
+            } else if (checkbox.id === 'config-straddle-enabled') {
+                socket.emit('updateConfig', { straddleEnabled: checkbox.checked });
             }
         }
     });
@@ -911,6 +928,17 @@ function updateLobbyState(lobby) {
             const status = runItTwiceToggle.querySelector('.toggle-status');
             if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
             configRunItTwiceEnabled.checked = isEnabled;
+        }
+        
+        // Straddle toggle
+        const straddleToggle = document.getElementById('toggle-straddle');
+        const configStraddleEnabled = document.getElementById('config-straddle-enabled');
+        if (straddleToggle && configStraddleEnabled) {
+            const isEnabled = lobby.config.straddleEnabled !== false;
+            straddleToggle.classList.toggle('active', isEnabled);
+            const status = straddleToggle.querySelector('.toggle-status');
+            if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
+            configStraddleEnabled.checked = isEnabled;
         }
         
         // Card skin selection
@@ -1722,6 +1750,9 @@ function updateGameState(state) {
     }
     
     updateActionButtons(state);
+    
+    // Aktualizuj panel Straddle
+    updateStraddlePanel(state);
 }
 
 // Aktualizuj listę spectatorów podczas gry
@@ -2284,6 +2315,190 @@ socket.on('playerAction', (data) => {
     }
     addLogEntry(message, data.action);
 });
+
+// ============== STRADDLE SOCKET HANDLERS ==============
+socket.on('straddleDeclared', (data) => {
+    hasStraddleDeclared = true;
+    myStraddlePosition = data.position;
+    
+    if (straddleStatus) {
+        straddleStatus.textContent = data.message;
+        straddleStatus.className = 'straddle-status success';
+    }
+    
+    if (btnCancelStraddle) {
+        btnCancelStraddle.classList.remove('hidden');
+    }
+    if (btnStraddle) {
+        btnStraddle.disabled = true;
+    }
+    
+    playSound('bet', 0.4);
+    showToast(`🎲 ${data.isReStraddle ? 'Re-Straddle' : 'Straddle'} zadeklarowany: ${data.amount}`, 'success');
+    addLogEntry(`🎲 ${data.isReStraddle ? 'Re-Straddle' : 'Straddle'} zadeklarowany: ${data.amount}`, 'straddle');
+});
+
+socket.on('straddleCancelled', (data) => {
+    hasStraddleDeclared = false;
+    myStraddlePosition = null;
+    
+    if (straddleStatus) {
+        straddleStatus.textContent = data.message || data.reason || 'Anulowano';
+        straddleStatus.className = 'straddle-status';
+    }
+    
+    if (btnCancelStraddle) {
+        btnCancelStraddle.classList.add('hidden');
+    }
+    
+    showToast(`🎲 Straddle anulowany: ${data.reason || data.message}`, 'info');
+});
+
+socket.on('straddleStateUpdate', (data) => {
+    // Aktualizuj listę oczekujących straddle
+    if (straddlePendingList) {
+        renderPendingStraddles(data.pendingStraddles);
+    }
+});
+
+socket.on('straddlePosted', (data) => {
+    playSound('bet', 0.5);
+    showToast(`🎲 ${data.playerName} stawia ${data.isReStraddle ? 'Re-Straddle' : 'Straddle'} (${data.position}): ${data.amount}`, 'info');
+    addLogEntry(`🎲 ${data.playerName} ${data.isReStraddle ? 'Re-Straddle' : 'Straddle'} (${data.position}): ${data.amount}`, 'straddle');
+    
+    // Reset stanu gracza po wykonaniu straddle
+    if (data.playerId === myPlayerId) {
+        hasStraddleDeclared = false;
+        myStraddlePosition = null;
+        if (btnCancelStraddle) btnCancelStraddle.classList.add('hidden');
+    }
+});
+
+// ============== STRADDLE UI FUNCTIONS ==============
+function updateStraddlePanel(state) {
+    if (!straddlePanel) return;
+    
+    // Ukryj panel dla obserwatorów
+    if (state.isSpectator || isSpectator) {
+        straddlePanel.classList.add('hidden');
+        return;
+    }
+    
+    // Sprawdź czy straddle jest włączone w konfiguracji
+    const straddleInfo = state.straddleInfo;
+    if (!straddleInfo || !state.config?.straddleEnabled) {
+        straddlePanel.classList.add('hidden');
+        return;
+    }
+    
+    // Pokaż panel tylko przed flopem (gdy można deklarować straddle)
+    // lub gdy są aktywne straddle do wyświetlenia
+    const showPanel = state.phase === 'preflop' || 
+                      (state.activeStraddles && state.activeStraddles.length > 0);
+    
+    if (!showPanel && !straddleInfo.hasStraddle && !hasStraddleDeclared) {
+        straddlePanel.classList.add('hidden');
+        return;
+    }
+    
+    straddlePanel.classList.remove('hidden');
+    
+    // Aktualizuj informacje o pozycji - wyświetl NASTĘPNĄ pozycję (dla której deklarujesz straddle)
+    if (straddlePosition) {
+        const posDisplay = straddleInfo.nextPosition || straddleInfo.position || '-';
+        straddlePosition.textContent = posDisplay;
+        
+        // Dodaj informację o obecnej pozycji w nawiasie jeśli różna
+        if (straddleInfo.currentPosition && straddleInfo.currentPosition !== posDisplay) {
+            straddlePosition.textContent = `${posDisplay} (teraz: ${straddleInfo.currentPosition})`;
+        }
+    }
+    
+    // Aktualizuj kwotę
+    if (straddleAmount) {
+        straddleAmount.textContent = straddleInfo.amount ? `${straddleInfo.amount}` : '-';
+    }
+    
+    // Lista oczekujących straddle
+    renderPendingStraddles(straddleInfo.pendingStraddles || []);
+    
+    // Aktualizuj przycisk straddle
+    if (btnStraddle) {
+        if (straddleInfo.canStraddle && !hasStraddleDeclared) {
+            btnStraddle.disabled = false;
+            
+            if (straddleInfo.isReStraddle) {
+                straddleBtnText.textContent = `Re-Straddle (${straddleInfo.amount})`;
+                btnStraddle.classList.add('re-straddle');
+            } else {
+                straddleBtnText.textContent = `Straddle (${straddleInfo.amount})`;
+                btnStraddle.classList.remove('re-straddle');
+            }
+        } else {
+            btnStraddle.disabled = true;
+            
+            if (hasStraddleDeclared) {
+                straddleBtnText.textContent = 'Zadeklarowano';
+            } else if (straddleInfo.reason) {
+                straddleBtnText.textContent = straddleInfo.reason;
+            } else {
+                straddleBtnText.textContent = 'Straddle';
+            }
+        }
+    }
+    
+    // Pokaż/ukryj przycisk anulowania
+    if (btnCancelStraddle) {
+        if (hasStraddleDeclared || straddleInfo.hasStraddle) {
+            btnCancelStraddle.classList.remove('hidden');
+        } else {
+            btnCancelStraddle.classList.add('hidden');
+        }
+    }
+    
+    // Aktualizuj status
+    if (straddleStatus && !hasStraddleDeclared) {
+        if (straddleInfo.canStraddle) {
+            straddleStatus.textContent = `Możesz postawić ${straddleInfo.isReStraddle ? 'Re-Straddle' : 'Straddle'}`;
+            straddleStatus.className = 'straddle-status';
+        } else if (straddleInfo.reason) {
+            straddleStatus.textContent = straddleInfo.reason;
+            straddleStatus.className = 'straddle-status';
+        } else {
+            straddleStatus.textContent = '';
+        }
+    }
+}
+
+function renderPendingStraddles(straddles) {
+    if (!straddlePendingList) return;
+    
+    if (!straddles || straddles.length === 0) {
+        straddlePendingList.innerHTML = '';
+        return;
+    }
+    
+    straddlePendingList.innerHTML = straddles.map(s => `
+        <div class="straddle-pending-item ${s.isReStraddle ? 're-straddle' : ''}">
+            <span class="player-name">${s.playerName}</span>
+            <span class="position-badge">${s.position}</span>
+            <span class="amount">${s.amount}</span>
+        </div>
+    `).join('');
+}
+
+// Straddle button event listeners
+if (btnStraddle) {
+    btnStraddle.addEventListener('click', () => {
+        socket.emit('declareStraddle');
+    });
+}
+
+if (btnCancelStraddle) {
+    btnCancelStraddle.addEventListener('click', () => {
+        socket.emit('cancelStraddle');
+    });
+}
 
 // ============== TURN TIMER EVENTS ==============
 socket.on('turnTimerStarted', (data) => {

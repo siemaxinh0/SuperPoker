@@ -43,9 +43,335 @@ const DEFAULT_CONFIG = {
     bbAnteAmount: 20,
     bombPotEnabled: true,
     runItTwiceEnabled: true,
+    straddleEnabled: true, // Straddle feature
     cardSkin: 'classic',
     turnTimeout: 15 // Czas na ruch w sekundach
 };
+
+// ============== STRADDLE SYSTEM ==============
+// pendingStraddles przechowywane w lobby: { playerId, playerName, amount, position, timestamp }
+
+// Oblicza AKTUALNĄ pozycję gracza w bieżącym rozdaniu
+function getPlayerCurrentPosition(gameState, playerId) {
+    if (!gameState) return null;
+    
+    const activePlayers = gameState.players.filter(p => p.chips > 0);
+    if (activePlayers.length < 2) return null;
+    
+    const playerIndex = activePlayers.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) return null;
+    
+    const dealerIndex = gameState.dealerIndex % activePlayers.length;
+    const numPlayers = activePlayers.length;
+    
+    // Pozycje względem OBECNEGO dealera
+    const sbIndex = (dealerIndex + 1) % numPlayers;
+    const bbIndex = (dealerIndex + 2) % numPlayers;
+    const utgIndex = (dealerIndex + 3) % numPlayers;
+    const utg1Index = (dealerIndex + 4) % numPlayers;
+    const utg2Index = (dealerIndex + 5) % numPlayers;
+    
+    if (playerIndex === dealerIndex) return 'BTN';
+    if (playerIndex === sbIndex) return 'SB';
+    if (playerIndex === bbIndex) return 'BB';
+    if (playerIndex === utgIndex) return 'UTG';
+    if (playerIndex === utg1Index && numPlayers > 4) return 'UTG+1';
+    if (playerIndex === utg2Index && numPlayers > 5) return 'UTG+2';
+    
+    return 'OTHER';
+}
+
+// Oblicza pozycję gracza w NASTĘPNYM rozdaniu (dla deklaracji straddle)
+function getPlayerPositionInNextRound(lobby, playerId) {
+    const gameState = lobby.gameState;
+    if (!gameState) return null;
+    
+    const activePlayers = gameState.players.filter(p => p.chips > 0);
+    if (activePlayers.length < 2) return null;
+    
+    const playerIndex = activePlayers.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) return null;
+    
+    // Oblicz następny dealer index
+    const nextDealerIndex = (gameState.dealerIndex + 1) % activePlayers.length;
+    
+    // Pozycje względem NASTĘPNEGO dealera
+    const numPlayers = activePlayers.length;
+    const sbIndex = (nextDealerIndex + 1) % numPlayers;
+    const bbIndex = (nextDealerIndex + 2) % numPlayers;
+    const utgIndex = (nextDealerIndex + 3) % numPlayers;
+    const utg1Index = (nextDealerIndex + 4) % numPlayers;
+    const utg2Index = (nextDealerIndex + 5) % numPlayers;
+    
+    if (playerIndex === nextDealerIndex) return 'BTN';
+    if (playerIndex === sbIndex) return 'SB';
+    if (playerIndex === bbIndex) return 'BB';
+    if (playerIndex === utgIndex) return 'UTG';
+    if (playerIndex === utg1Index && numPlayers > 4) return 'UTG+1';
+    if (playerIndex === utg2Index && numPlayers > 5) return 'UTG+2';
+    
+    return 'OTHER';
+}
+
+function canDeclareStraddle(lobby, playerId) {
+    if (!lobby.config.straddleEnabled) return { allowed: false, reason: 'Straddle wyłączone' };
+    if (!lobby.gameState) return { allowed: false, reason: 'Gra nie rozpoczęta' };
+    
+    // Używamy pozycji w NASTĘPNYM rozdaniu (bo deklarujemy podczas bieżącego)
+    const position = getPlayerPositionInNextRound(lobby, playerId);
+    if (!position) return { allowed: false, reason: 'Nieprawidłowy gracz' };
+    
+    const player = lobby.gameState.players.find(p => p.id === playerId);
+    if (!player) return { allowed: false, reason: 'Gracz nie znaleziony' };
+    
+    const pendingStraddles = lobby.pendingStraddles || [];
+    
+    // Znajdź istniejące straddle
+    const existingUTG = pendingStraddles.find(s => s.position === 'UTG');
+    const existingUTG1 = pendingStraddles.find(s => s.position === 'UTG+1');
+    const existingUTG2 = pendingStraddles.find(s => s.position === 'UTG+2');
+    const existingBTN = pendingStraddles.find(s => s.position === 'BTN');
+    
+    // Sprawdź czy gracz już ma zadeklarowany straddle
+    const myExistingStraddle = pendingStraddles.find(s => s.playerId === playerId);
+    if (myExistingStraddle) {
+        return { allowed: false, reason: 'Już zadeklarowałeś Straddle' };
+    }
+    
+    // Oblicz wymaganą kwotę
+    let requiredAmount = lobby.config.bigBlind * 2; // Bazowy straddle = 2x BB
+    let isReStraddle = false;
+    
+    if (position === 'UTG') {
+        // UTG może zawsze stawiać straddle (jeśli nie ma jeszcze)
+        if (existingUTG) {
+            return { allowed: false, reason: 'UTG już zadeklarował Straddle' };
+        }
+        requiredAmount = lobby.config.bigBlind * 2;
+    } else if (position === 'UTG+1') {
+        // UTG+1 może Re-Straddle tylko jeśli UTG zadeklarował
+        if (!existingUTG) {
+            return { allowed: false, reason: 'Czekaj aż UTG zadeklaruje Straddle' };
+        }
+        if (existingUTG1) {
+            return { allowed: false, reason: 'UTG+1 już zadeklarował Re-Straddle' };
+        }
+        requiredAmount = existingUTG.amount * 2; // Re-Straddle = 2x poprzedni
+        isReStraddle = true;
+    } else if (position === 'UTG+2') {
+        // UTG+2 może Re-Re-Straddle tylko jeśli UTG+1 zadeklarował
+        if (!existingUTG || !existingUTG1) {
+            return { allowed: false, reason: 'Czekaj na Straddle od UTG i UTG+1' };
+        }
+        if (existingUTG2) {
+            return { allowed: false, reason: 'UTG+2 już zadeklarował Re-Straddle' };
+        }
+        requiredAmount = existingUTG1.amount * 2;
+        isReStraddle = true;
+    } else if (position === 'BTN') {
+        // BTN może Button Straddle (niezależnie od UTG)
+        if (existingBTN) {
+            return { allowed: false, reason: 'BTN już zadeklarował Straddle' };
+        }
+        requiredAmount = lobby.config.bigBlind * 2;
+    } else {
+        return { allowed: false, reason: `Pozycja ${position} nie może Straddle` };
+    }
+    
+    // Sprawdź środki
+    if (player.chips < requiredAmount) {
+        return { allowed: false, reason: `Za mało żetonów (potrzeba ${requiredAmount})` };
+    }
+    
+    return { 
+        allowed: true, 
+        position, 
+        amount: requiredAmount,
+        isReStraddle
+    };
+}
+
+function declareStraddle(lobby, playerId) {
+    const validation = canDeclareStraddle(lobby, playerId);
+    if (!validation.allowed) {
+        return { success: false, message: validation.reason };
+    }
+    
+    const player = lobby.gameState.players.find(p => p.id === playerId);
+    
+    if (!lobby.pendingStraddles) {
+        lobby.pendingStraddles = [];
+    }
+    
+    const straddle = {
+        playerId,
+        playerName: player.name,
+        amount: validation.amount,
+        position: validation.position,
+        isReStraddle: validation.isReStraddle,
+        timestamp: Date.now()
+    };
+    
+    lobby.pendingStraddles.push(straddle);
+    
+    console.log(`[STRADDLE] ${player.name} zadeklarował ${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} na pozycji ${validation.position}: ${validation.amount}`);
+    
+    return { 
+        success: true, 
+        straddle,
+        message: `${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} zadeklarowany: ${validation.amount}`
+    };
+}
+
+function cancelStraddle(lobby, playerId) {
+    if (!lobby.pendingStraddles) return { success: false, message: 'Brak deklaracji' };
+    
+    const index = lobby.pendingStraddles.findIndex(s => s.playerId === playerId);
+    if (index === -1) return { success: false, message: 'Nie masz aktywnej deklaracji' };
+    
+    const removed = lobby.pendingStraddles.splice(index, 1)[0];
+    
+    // Jeśli usunięto UTG straddle, usuń wszystkie zależne re-straddle
+    if (removed.position === 'UTG') {
+        const dependentPositions = ['UTG+1', 'UTG+2'];
+        for (const pos of dependentPositions) {
+            const depIndex = lobby.pendingStraddles.findIndex(s => s.position === pos);
+            if (depIndex !== -1) {
+                const depRemoved = lobby.pendingStraddles.splice(depIndex, 1)[0];
+                const depSocket = io.sockets.sockets.get(depRemoved.playerId);
+                if (depSocket) {
+                    depSocket.emit('straddleCancelled', {
+                        reason: 'UTG anulował Straddle'
+                    });
+                }
+            }
+        }
+    }
+    
+    // Jeśli usunięto UTG+1 straddle, usuń UTG+2
+    if (removed.position === 'UTG+1') {
+        const utg2Index = lobby.pendingStraddles.findIndex(s => s.position === 'UTG+2');
+        if (utg2Index !== -1) {
+            const utg2Removed = lobby.pendingStraddles.splice(utg2Index, 1)[0];
+            const utg2Socket = io.sockets.sockets.get(utg2Removed.playerId);
+            if (utg2Socket) {
+                utg2Socket.emit('straddleCancelled', {
+                    reason: 'UTG+1 anulował Re-Straddle'
+                });
+            }
+        }
+    }
+    
+    console.log(`[STRADDLE] ${removed.playerName} anulował ${removed.isReStraddle ? 'Re-Straddle' : 'Straddle'}`);
+    
+    return { success: true, message: 'Straddle anulowany' };
+}
+
+// Walidacja straddle na początku nowego rozdania (używa AKTUALNEJ pozycji)
+function validatePendingStraddlesForNewRound(lobby) {
+    if (!lobby.pendingStraddles || lobby.pendingStraddles.length === 0) return;
+    
+    const gameState = lobby.gameState;
+    const toRemove = [];
+    
+    for (const straddle of lobby.pendingStraddles) {
+        // Sprawdź AKTUALNĄ pozycję gracza (po przesunięciu dealera)
+        const currentPosition = getPlayerCurrentPosition(gameState, straddle.playerId);
+        const player = gameState.players.find(p => p.id === straddle.playerId);
+        
+        console.log(`[STRADDLE-VALIDATE] ${straddle.playerName}: deklarowana=${straddle.position}, aktualna=${currentPosition}`);
+        
+        // Sprawdź czy gracz nadal ma tę samą pozycję
+        if (currentPosition !== straddle.position) {
+            toRemove.push(straddle);
+            const socket = io.sockets.sockets.get(straddle.playerId);
+            if (socket) {
+                socket.emit('straddleCancelled', {
+                    reason: `Zmiana pozycji: jesteś teraz ${currentPosition}, nie ${straddle.position}`
+                });
+            }
+            console.log(`[STRADDLE] Anulowano straddle ${straddle.playerName} - zmiana pozycji z ${straddle.position} na ${currentPosition}`);
+            continue;
+        }
+        
+        // Sprawdź czy gracz ma wystarczająco żetonów
+        if (!player || player.chips < straddle.amount) {
+            toRemove.push(straddle);
+            const socket = io.sockets.sockets.get(straddle.playerId);
+            if (socket) {
+                socket.emit('straddleCancelled', {
+                    reason: 'Za mało żetonów na pokrycie Straddle'
+                });
+            }
+            console.log(`[STRADDLE] Anulowano straddle ${straddle.playerName} - brak żetonów`);
+        }
+    }
+    
+    // Usuń nieprawidłowe deklaracje
+    lobby.pendingStraddles = lobby.pendingStraddles.filter(s => !toRemove.includes(s));
+    
+    // Jeśli usunęliśmy UTG, musimy usunąć też UTG+1 i UTG+2
+    const hasUTG = lobby.pendingStraddles.some(s => s.position === 'UTG');
+    if (!hasUTG) {
+        const dependentToRemove = lobby.pendingStraddles.filter(s => s.position === 'UTG+1' || s.position === 'UTG+2');
+        for (const dep of dependentToRemove) {
+            const socket = io.sockets.sockets.get(dep.playerId);
+            if (socket) {
+                socket.emit('straddleCancelled', {
+                    reason: 'UTG nie ma Straddle'
+                });
+            }
+        }
+        lobby.pendingStraddles = lobby.pendingStraddles.filter(s => s.position !== 'UTG+1' && s.position !== 'UTG+2');
+    }
+    
+    // Jeśli usunęliśmy UTG+1, musimy usunąć UTG+2
+    const hasUTG1 = lobby.pendingStraddles.some(s => s.position === 'UTG+1');
+    if (!hasUTG1) {
+        const utg2ToRemove = lobby.pendingStraddles.filter(s => s.position === 'UTG+2');
+        for (const dep of utg2ToRemove) {
+            const socket = io.sockets.sockets.get(dep.playerId);
+            if (socket) {
+                socket.emit('straddleCancelled', {
+                    reason: 'UTG+1 nie ma Re-Straddle'
+                });
+            }
+        }
+        lobby.pendingStraddles = lobby.pendingStraddles.filter(s => s.position !== 'UTG+2');
+    }
+}
+
+function getStraddleInfo(lobby, playerId) {
+    if (!lobby.config.straddleEnabled || !lobby.gameState) {
+        return { canStraddle: false, pendingStraddles: [], currentPosition: null, nextPosition: null };
+    }
+    
+    const validation = canDeclareStraddle(lobby, playerId);
+    const myStraddle = (lobby.pendingStraddles || []).find(s => s.playerId === playerId);
+    
+    // Pobierz obie pozycje dla UI
+    const currentPosition = getPlayerCurrentPosition(lobby.gameState, playerId);
+    const nextPosition = getPlayerPositionInNextRound(lobby, playerId);
+    
+    return {
+        canStraddle: validation.allowed,
+        reason: validation.reason,
+        amount: validation.amount,
+        position: nextPosition, // Pozycja w następnym rozdaniu (dla deklaracji)
+        currentPosition: currentPosition, // Aktualna pozycja (do wyświetlenia)
+        nextPosition: nextPosition,
+        isReStraddle: validation.isReStraddle,
+        hasStraddle: !!myStraddle,
+        myStraddle: myStraddle,
+        pendingStraddles: (lobby.pendingStraddles || []).map(s => ({
+            playerName: s.playerName,
+            playerId: s.playerId,
+            amount: s.amount,
+            position: s.position,
+            isReStraddle: s.isReStraddle
+        }))
+    };
+}
 
 // ============== TURN TIMER SYSTEM ==============
 const turnTimers = new Map(); // lobbyCode -> { timer, playerId, expiresAt }
@@ -829,10 +1155,89 @@ function postBlinds(gameState, lobby) {
     }
     
     gameState.currentBet = gameState.config.bigBlind;
-    gameState.currentPlayerIndex = (bbIndex + 1) % activePlayers.length;
+    
+    // === STRADDLE PROCESSING ===
+    let lastStraddlerIndex = bbIndex;
+    let highestStraddle = gameState.config.bigBlind;
+    
+    if (lobby && lobby.pendingStraddles && lobby.pendingStraddles.length > 0 && !gameState.isBombPot) {
+        // Waliduj straddle (sprawdź pozycje w BIEŻĄCYM rozdaniu i środki)
+        validatePendingStraddlesForNewRound(lobby);
+        
+        console.log(`[STRADDLE] Po walidacji: ${lobby.pendingStraddles.length} straddle do wykonania`);
+        
+        // Sortuj straddle: UTG najpierw, potem UTG+1, UTG+2, potem BTN
+        const straddleOrder = ['UTG', 'UTG+1', 'UTG+2', 'BTN'];
+        const sortedStraddles = [...lobby.pendingStraddles].sort((a, b) => {
+            return straddleOrder.indexOf(a.position) - straddleOrder.indexOf(b.position);
+        });
+        
+        gameState.activeStraddles = [];
+        
+        for (const straddle of sortedStraddles) {
+            const straddlePlayer = activePlayers.find(p => p.id === straddle.playerId);
+            if (!straddlePlayer) continue;
+            
+            const straddleAmount = Math.min(straddle.amount, straddlePlayer.chips);
+            if (straddleAmount <= 0) continue;
+            
+            straddlePlayer.chips -= straddleAmount;
+            straddlePlayer.currentBet = straddleAmount;
+            straddlePlayer.totalContribution = (straddlePlayer.totalContribution || 0) + straddleAmount;
+            gameState.pot += straddleAmount;
+            
+            if (straddlePlayer.chips === 0) {
+                straddlePlayer.isAllIn = true;
+            }
+            
+            // Aktualizuj najwyższy straddle
+            if (straddleAmount > highestStraddle) {
+                highestStraddle = straddleAmount;
+                lastStraddlerIndex = activePlayers.findIndex(p => p.id === straddlePlayer.id);
+            }
+            
+            gameState.activeStraddles.push({
+                playerId: straddlePlayer.id,
+                playerName: straddlePlayer.name,
+                amount: straddleAmount,
+                position: straddle.position
+            });
+            
+            // Emituj informację o straddle
+            if (lobby) {
+                io.to(lobby.code).emit('straddlePosted', {
+                    playerId: straddlePlayer.id,
+                    playerName: straddlePlayer.name,
+                    amount: straddleAmount,
+                    position: straddle.position,
+                    isReStraddle: straddle.isReStraddle
+                });
+            }
+            
+            console.log(`[STRADDLE] ${straddlePlayer.name} wpłaca ${straddle.isReStraddle ? 'Re-Straddle' : 'Straddle'}: ${straddleAmount}`);
+        }
+        
+        // Wyczyść pending straddles po użyciu
+        lobby.pendingStraddles = [];
+        
+        // Ustaw current bet na najwyższy straddle
+        gameState.currentBet = highestStraddle;
+        gameState.minRaise = highestStraddle; // Min raise = highest straddle
+    }
+    
+    // Ustaw pierwszego gracza do akcji = gracz po ostatnim straddlerze (lub po BB jeśli brak straddle)
+    gameState.currentPlayerIndex = (lastStraddlerIndex + 1) % activePlayers.length;
     
     const currentPlayer = activePlayers[gameState.currentPlayerIndex];
     gameState.currentPlayerIndex = gameState.players.findIndex(p => p.id === currentPlayer.id);
+    
+    // Zapisz kto ma "option" (ostatni straddler lub BB)
+    if (gameState.activeStraddles && gameState.activeStraddles.length > 0) {
+        const lastStraddle = gameState.activeStraddles[gameState.activeStraddles.length - 1];
+        gameState.optionPlayerId = lastStraddle.playerId;
+    } else {
+        gameState.optionPlayerId = bbPlayer.id;
+    }
 }
 
 function dealCommunityCards(gameState, count) {
@@ -2377,7 +2782,9 @@ function getPlayerView(lobby, playerId) {
                 };
             }
             return null;
-        })()
+        })(),
+        straddleInfo: lobby.config.straddleEnabled ? getStraddleInfo(lobby, playerId) : null,
+        activeStraddles: gameState.activeStraddles || []
     };
 }
 
@@ -2458,7 +2865,8 @@ function getSpectatorView(lobby) {
                 };
             }
             return null;
-        })()
+        })(),
+        activeStraddles: gameState.activeStraddles || []
     };
 }
 
@@ -2901,6 +3309,9 @@ io.on('connection', (socket) => {
         if (newConfig.runItTwiceEnabled !== undefined) {
             lobby.config.runItTwiceEnabled = !!newConfig.runItTwiceEnabled;
         }
+        if (newConfig.straddleEnabled !== undefined) {
+            lobby.config.straddleEnabled = !!newConfig.straddleEnabled;
+        }
         if (newConfig.cardSkin !== undefined) {
             const validSkins = ['classic', 'colorful', 'dark'];
             if (validSkins.includes(newConfig.cardSkin)) {
@@ -3036,6 +3447,80 @@ io.on('connection', (socket) => {
         if (result && result.error) {
             socket.emit('error', { message: result.error });
         }
+    });
+    
+    // ============== STRADDLE SOCKET HANDLERS ==============
+    socket.on('declareStraddle', () => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('error', { message: 'Nie jesteś w grze!' });
+            return;
+        }
+        
+        const result = declareStraddle(lobby, socket.id);
+        if (!result.success) {
+            socket.emit('error', { message: result.message });
+            return;
+        }
+        
+        // Wyślij potwierdzenie do gracza
+        socket.emit('straddleDeclared', {
+            amount: result.straddle.amount,
+            position: result.straddle.position,
+            isReStraddle: result.straddle.isReStraddle,
+            message: result.message
+        });
+        
+        // Broadcast do wszystkich o nowej deklaracji straddle
+        io.to(lobby.code).emit('straddleStateUpdate', {
+            pendingStraddles: (lobby.pendingStraddles || []).map(s => ({
+                playerName: s.playerName,
+                amount: s.amount,
+                position: s.position,
+                isReStraddle: s.isReStraddle
+            }))
+        });
+        
+        broadcastLobbyState(lobby);
+    });
+    
+    socket.on('cancelStraddle', () => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('error', { message: 'Nie jesteś w grze!' });
+            return;
+        }
+        
+        const result = cancelStraddle(lobby, socket.id);
+        if (!result.success) {
+            socket.emit('error', { message: result.message });
+            return;
+        }
+        
+        socket.emit('straddleCancelled', { message: result.message });
+        
+        // Broadcast do wszystkich o zmianie stanu straddle
+        io.to(lobby.code).emit('straddleStateUpdate', {
+            pendingStraddles: (lobby.pendingStraddles || []).map(s => ({
+                playerName: s.playerName,
+                amount: s.amount,
+                position: s.position,
+                isReStraddle: s.isReStraddle
+            }))
+        });
+        
+        broadcastLobbyState(lobby);
+    });
+    
+    socket.on('getStraddleInfo', () => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('straddleInfo', { canStraddle: false, pendingStraddles: [] });
+            return;
+        }
+        
+        const info = getStraddleInfo(lobby, socket.id);
+        socket.emit('straddleInfo', info);
     });
     
     // ============== RUN IT TWICE VOTE SOCKET HANDLER ==============

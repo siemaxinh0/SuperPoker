@@ -117,6 +117,14 @@
                                     <span class="toggle-status">włączono</span>
                                 </div>
                             </div>
+                            <div class="feature-toggle" id="toggle-straddle">
+                                <input type="checkbox" id="config-straddle-enabled" checked hidden>
+                                <div class="toggle-content">
+                                    <span class="toggle-icon">💎</span>
+                                    <span class="toggle-name">Straddle</span>
+                                    <span class="toggle-status">włączono</span>
+                                </div>
+                            </div>
                         </div>
                         <div class="ante-amount-row" id="bb-ante-amount-group" style="display: none;">
                             <label>Wartość BB Ante</label>
@@ -324,6 +332,28 @@
             </div>
         </div>
         </div> <!-- Koniec poker-table-wrapper -->
+        
+        <!-- Panel Straddle (po prawej stronie stołu) -->
+        <div id="straddle-panel" class="straddle-panel hidden">
+            <div class="straddle-header">
+                <span class="straddle-icon">🎲</span>
+                <span class="straddle-title">Straddle</span>
+            </div>
+            <div class="straddle-info" id="straddle-info">
+                <div class="straddle-position">Następne rozdanie: <span id="straddle-position">-</span></div>
+                <div class="straddle-amount">Kwota: <span id="straddle-amount">-</span></div>
+            </div>
+            <div class="straddle-pending" id="straddle-pending-list"></div>
+            <button id="btn-straddle" class="btn btn-straddle" disabled>
+                <span class="btn-icon">💎</span>
+                <span id="straddle-btn-text">Straddle</span>
+            </button>
+            <button id="btn-cancel-straddle" class="btn btn-cancel-straddle hidden">
+                <span class="btn-icon">❌</span>
+                <span>Anuluj</span>
+            </button>
+            <div class="straddle-status" id="straddle-status"></div>
+        </div>
         
         <!-- Panel gracza -->
         <div id="player-panel" class="player-panel">
