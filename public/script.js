@@ -2785,9 +2785,9 @@ document.querySelectorAll('.btn-menu-tile, .btn-primary, .btn-success, .btn-dang
     });
 });
 
-// Uruchom muzykę po pierwszej interakcji użytkownika
+// Uruchom muzykę po pierwszej interakcji użytkownika (browsers block autoplay)
 document.addEventListener('click', function initMusic() {
-    if (musicEnabled) {
+    if (musicVolume > 0) {
         startBackgroundMusic();
     }
     document.removeEventListener('click', initMusic);
