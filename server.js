@@ -3501,6 +3501,9 @@ io.on('connection', (socket) => {
             }))
         });
         
+        // WAŻNE: Broadcast gameState aby zaktualizować straddleInfo u wszystkich graczy
+        // (żeby wiedzieli czy mogą dać re-straddle)
+        broadcastGameState(lobby);
         broadcastLobbyState(lobby);
     });
     
@@ -3529,6 +3532,8 @@ io.on('connection', (socket) => {
             }))
         });
         
+        // WAŻNE: Broadcast gameState aby zaktualizować straddleInfo u wszystkich graczy
+        broadcastGameState(lobby);
         broadcastLobbyState(lobby);
     });
     
