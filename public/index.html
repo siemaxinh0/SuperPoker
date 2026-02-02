@@ -22,7 +22,7 @@
             <div class="menu-buttons-grid">
                 <button id="btn-create-lobby" class="btn-menu-tile">
                     <div class="tile-icon">🎮</div>
-                    <div class="tile-label">Stwórzs<br>Lobby</div>
+                    <div class="tile-label">Stwórz<br>Lobby</div>
                     <div class="tile-glow"></div>
                 </button>
                 <button id="btn-join-lobby" class="btn-menu-tile">
@@ -458,12 +458,12 @@
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
-                <div class="setting-item">
-                    <span class="setting-label"><span class="emoji">🎶</span> Muzyka w tle</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="toggle-background-music" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
+                <div class="setting-item volume-setting">
+                    <span class="setting-label"><span class="emoji">🎶</span> Głośność muzyki</span>
+                    <div class="volume-control">
+                        <input type="range" id="music-volume-slider" class="volume-slider" min="0" max="100" value="30">
+                        <span class="volume-value" id="music-volume-value">30%</span>
+                    </div>
                 </div>
             </div>
             

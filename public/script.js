@@ -114,7 +114,7 @@ let hasShownCards = false; // Czy gracz już pokazał swoje karty w tym rozdaniu
 
 // ============== AUDIO SYSTEM ==============
 let soundEnabled = localStorage.getItem('pokerSoundEnabled') !== 'false'; // Domyślnie włączone
-let musicEnabled = localStorage.getItem('pokerMusicEnabled') !== 'false'; // Domyślnie włączone
+let musicVolume = parseInt(localStorage.getItem('pokerMusicVolume')) || 30; // Domyślna głośność 30%
 const audioCache = new Map(); // Cache dla obiektów Audio
 let backgroundMusic = null; // Obiekt Audio dla muzyki w tle
 
@@ -169,15 +169,15 @@ function playSound(soundName, volume = 0.5) {
 }
 
 function startBackgroundMusic() {
-    if (!musicEnabled) return;
+    if (musicVolume === 0) return;
     
     try {
         if (!backgroundMusic) {
             backgroundMusic = new Audio(MUSIC.background);
             backgroundMusic.loop = true;
-            backgroundMusic.volume = 0.3;
         }
         
+        backgroundMusic.volume = musicVolume / 100;
         backgroundMusic.play().catch(e => {
             console.log('[AUDIO] Nie można odtworzyć muzyki w tle (wymaga interakcji użytkownika)');
         });
@@ -193,30 +193,48 @@ function stopBackgroundMusic() {
     }
 }
 
+function setMusicVolume(volume) {
+    musicVolume = Math.max(0, Math.min(100, volume));
+    localStorage.setItem('pokerMusicVolume', musicVolume);
+    
+    if (backgroundMusic) {
+        backgroundMusic.volume = musicVolume / 100;
+        
+        // Jeśli głośność > 0 i muzyka nie gra, uruchom ją
+        if (musicVolume > 0 && backgroundMusic.paused) {
+            backgroundMusic.play().catch(e => {
+                console.log('[AUDIO] Nie można odtworzyć muzyki (wymaga interakcji)');
+            });
+        }
+        // Jeśli głośność = 0, zatrzymaj muzykę
+        if (musicVolume === 0) {
+            backgroundMusic.pause();
+        }
+    } else if (musicVolume > 0) {
+        startBackgroundMusic();
+    }
+    
+    updateSettingsUI();
+}
+
 function toggleSoundEffects() {
     soundEnabled = !soundEnabled;
     localStorage.setItem('pokerSoundEnabled', soundEnabled);
     updateSettingsUI();
 }
 
-function toggleBackgroundMusic() {
-    musicEnabled = !musicEnabled;
-    localStorage.setItem('pokerMusicEnabled', musicEnabled);
-    
-    if (musicEnabled) {
-        startBackgroundMusic();
-    } else {
-        stopBackgroundMusic();
-    }
-    updateSettingsUI();
-}
-
 function updateSettingsUI() {
     const soundCheckbox = document.getElementById('toggle-sound-effects');
-    const musicCheckbox = document.getElementById('toggle-background-music');
+    const volumeSlider = document.getElementById('music-volume-slider');
+    const volumeValue = document.getElementById('music-volume-value');
     
     if (soundCheckbox) soundCheckbox.checked = soundEnabled;
-    if (musicCheckbox) musicCheckbox.checked = musicEnabled;
+    if (volumeSlider) {
+        volumeSlider.value = musicVolume;
+        // Update slider fill gradient
+        volumeSlider.style.setProperty('--volume-percent', `${musicVolume}%`);
+    }
+    if (volumeValue) volumeValue.textContent = `${musicVolume}%`;
 }
 
 // ============== BOMB POT DOM ==============
@@ -842,17 +860,17 @@ function updateLobbyState(lobby) {
     // === NOWE LOBBY - obsługa ustawień ===
     const settingsSection = document.querySelector('.lobby-settings');
     if (settingsSection) {
-        // Wyłącz edycję dla nie-hostów
+        // Wyłącz edycję dla nie-hostów (tylko ustawienia lobby, nie globalne ustawienia dźwięku)
         if (!isHost || lobby.isGameStarted) {
             settingsSection.classList.add('readonly');
-            document.querySelectorAll('.setting-item input').forEach(input => input.disabled = true);
-            document.querySelectorAll('.feature-toggle').forEach(toggle => toggle.classList.add('disabled'));
-            document.querySelectorAll('.skin-option').forEach(opt => opt.classList.add('disabled'));
+            settingsSection.querySelectorAll('.setting-item input').forEach(input => input.disabled = true);
+            settingsSection.querySelectorAll('.feature-toggle').forEach(toggle => toggle.classList.add('disabled'));
+            settingsSection.querySelectorAll('.skin-option').forEach(opt => opt.classList.add('disabled'));
         } else {
             settingsSection.classList.remove('readonly');
-            document.querySelectorAll('.setting-item input').forEach(input => input.disabled = false);
-            document.querySelectorAll('.feature-toggle').forEach(toggle => toggle.classList.remove('disabled'));
-            document.querySelectorAll('.skin-option').forEach(opt => opt.classList.remove('disabled'));
+            settingsSection.querySelectorAll('.setting-item input').forEach(input => input.disabled = false);
+            settingsSection.querySelectorAll('.feature-toggle').forEach(toggle => toggle.classList.remove('disabled'));
+            settingsSection.querySelectorAll('.skin-option').forEach(opt => opt.classList.remove('disabled'));
         }
         
         // Zaktualizuj wartości
@@ -2673,7 +2691,8 @@ const settingsToggleBtn = document.getElementById('settings-toggle');
 const settingsModal = document.getElementById('settings-modal');
 const closeSettingsBtn = document.getElementById('close-settings');
 const soundEffectsCheckbox = document.getElementById('toggle-sound-effects');
-const backgroundMusicCheckbox = document.getElementById('toggle-background-music');
+const musicVolumeSlider = document.getElementById('music-volume-slider');
+const musicVolumeValue = document.getElementById('music-volume-value');
 
 if (settingsToggleBtn) {
     settingsToggleBtn.addEventListener('click', () => {
@@ -2707,16 +2726,19 @@ if (soundEffectsCheckbox) {
     });
 }
 
-if (backgroundMusicCheckbox) {
-    backgroundMusicCheckbox.addEventListener('change', () => {
-        musicEnabled = backgroundMusicCheckbox.checked;
-        localStorage.setItem('pokerMusicEnabled', musicEnabled);
-        if (musicEnabled) {
-            startBackgroundMusic();
-        } else {
-            stopBackgroundMusic();
+if (musicVolumeSlider) {
+    musicVolumeSlider.addEventListener('input', () => {
+        const volume = parseInt(musicVolumeSlider.value);
+        if (musicVolumeValue) {
+            musicVolumeValue.textContent = `${volume}%`;
         }
+        // Update slider fill gradient
+        musicVolumeSlider.style.setProperty('--volume-percent', `${volume}%`);
+        setMusicVolume(volume);
     });
+    
+    // Initialize slider fill on page load
+    musicVolumeSlider.style.setProperty('--volume-percent', `${musicVolume}%`);
 }
 
 // Przycisk "Opuść lobby" w ustawieniach
