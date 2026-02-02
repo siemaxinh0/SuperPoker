@@ -70,6 +70,8 @@ const btnFold = document.getElementById('btn-fold');
 const btnCheck = document.getElementById('btn-check');
 const btnCall = document.getElementById('btn-call');
 const btnBet = document.getElementById('btn-bet');
+const showdownActions = document.getElementById('showdown-actions');
+const btnShowCards = document.getElementById('btn-show-cards');
 const betAmountInput = document.getElementById('bet-amount');
 const betLabel = document.getElementById('bet-label');
 const callAmount = document.getElementById('call-amount');
@@ -99,6 +101,123 @@ let raiseMinAmount = 20;
 let raiseMaxAmount = 1000;
 let currentWinners = []; // Lista zwycięzców do podświetlenia na stole
 let playerLastActions = {}; // Ostatnie akcje graczy {playerId: {action, amount, timestamp}}
+let runItTwiceFoldedPlayers = []; // Spasowani gracze z hipotetycznymi układami dla Run It Twice
+
+// ============== RABBIT HUNT STATE ==============
+let rabbitHuntCards = null; // Karty do rabbit hunt (od serwera)
+let rabbitHuntRevealed = false; // Czy rabbit hunt został aktywowany
+let canRabbitHunt = false; // Czy można aktywować rabbit hunt (wonByFold)
+
+// ============== SHOW CARDS STATE ==============
+let revealedPlayerCards = new Map(); // playerId -> cards (karty pokazane przez graczy)
+let hasShownCards = false; // Czy gracz już pokazał swoje karty w tym rozdaniu
+
+// ============== AUDIO SYSTEM ==============
+let soundEnabled = localStorage.getItem('pokerSoundEnabled') !== 'false'; // Domyślnie włączone
+let musicEnabled = localStorage.getItem('pokerMusicEnabled') !== 'false'; // Domyślnie włączone
+const audioCache = new Map(); // Cache dla obiektów Audio
+let backgroundMusic = null; // Obiekt Audio dla muzyki w tle
+
+const SOUNDS = {
+    fold: 'sounds/fold.mp3',
+    check: 'sounds/check.mp3',
+    call: 'sounds/call.mp3',
+    bet: 'sounds/bet.mp3',
+    raise: 'sounds/raise.mp3',
+    allIn: 'sounds/allin.mp3',
+    win: 'sounds/win.mp3',
+    lose: 'sounds/lose.mp3',
+    bust: 'sounds/bust.mp3',
+    cardDeal: 'sounds/card-deal.mp3',
+    cardFlip: 'sounds/card-flip.mp3',
+    chips: 'sounds/chips.mp3',
+    timer: 'sounds/timer.mp3',
+    turnStart: 'sounds/turn-start.mp3',
+    buttonHover: 'sounds/button-hover.mp3',
+    buttonClick: 'sounds/button-click.mp3',
+    notification: 'sounds/notification.mp3',
+    bombPot: 'sounds/bomb-pot.mp3'
+};
+
+const MUSIC = {
+    background: 'sounds/background-music.mp3'
+};
+
+function playSound(soundName, volume = 0.5) {
+    if (!soundEnabled) return;
+    
+    const soundPath = SOUNDS[soundName];
+    if (!soundPath) return;
+    
+    try {
+        let audio = audioCache.get(soundName);
+        if (!audio) {
+            audio = new Audio(soundPath);
+            audioCache.set(soundName, audio);
+        }
+        
+        // Reset i odtwórz
+        audio.currentTime = 0;
+        audio.volume = Math.min(1, Math.max(0, volume));
+        audio.play().catch(e => {
+            // Ignoruj błędy gdy plik nie istnieje lub autoplay zablokowany
+            console.log(`[AUDIO] Nie można odtworzyć: ${soundName}`);
+        });
+    } catch (e) {
+        console.log(`[AUDIO] Błąd: ${e.message}`);
+    }
+}
+
+function startBackgroundMusic() {
+    if (!musicEnabled) return;
+    
+    try {
+        if (!backgroundMusic) {
+            backgroundMusic = new Audio(MUSIC.background);
+            backgroundMusic.loop = true;
+            backgroundMusic.volume = 0.3;
+        }
+        
+        backgroundMusic.play().catch(e => {
+            console.log('[AUDIO] Nie można odtworzyć muzyki w tle (wymaga interakcji użytkownika)');
+        });
+    } catch (e) {
+        console.log(`[AUDIO] Błąd muzyki: ${e.message}`);
+    }
+}
+
+function stopBackgroundMusic() {
+    if (backgroundMusic) {
+        backgroundMusic.pause();
+        backgroundMusic.currentTime = 0;
+    }
+}
+
+function toggleSoundEffects() {
+    soundEnabled = !soundEnabled;
+    localStorage.setItem('pokerSoundEnabled', soundEnabled);
+    updateSettingsUI();
+}
+
+function toggleBackgroundMusic() {
+    musicEnabled = !musicEnabled;
+    localStorage.setItem('pokerMusicEnabled', musicEnabled);
+    
+    if (musicEnabled) {
+        startBackgroundMusic();
+    } else {
+        stopBackgroundMusic();
+    }
+    updateSettingsUI();
+}
+
+function updateSettingsUI() {
+    const soundCheckbox = document.getElementById('toggle-sound-effects');
+    const musicCheckbox = document.getElementById('toggle-background-music');
+    
+    if (soundCheckbox) soundCheckbox.checked = soundEnabled;
+    if (musicCheckbox) musicCheckbox.checked = musicEnabled;
+}
 
 // ============== BOMB POT DOM ==============
 const bombPotPanel = document.getElementById('bomb-pot-panel');
@@ -121,6 +240,17 @@ const viewBombPot = document.getElementById('view-bomb-pot');
 const configCardSkin = document.getElementById('config-card-skin');
 const viewCardSkin = document.getElementById('view-card-skin');
 
+// ============== RUN IT TWICE DOM ==============
+const runItTwicePanel = document.getElementById('run-it-twice-panel');
+const runItTwiceTimerDisplay = document.getElementById('run-it-twice-timer-display');
+const runItTwiceYesVotes = document.getElementById('run-it-twice-yes-votes');
+const runItTwiceTotalVoters = document.getElementById('run-it-twice-total-voters');
+const btnRunItTwiceYes = document.getElementById('btn-run-it-twice-yes');
+const btnRunItTwiceNo = document.getElementById('btn-run-it-twice-no');
+const runItTwiceVoteButtons = document.getElementById('run-it-twice-vote-buttons');
+const runItTwiceVotedStatus = document.getElementById('run-it-twice-voted-status');
+const runItTwiceMyVote = document.getElementById('run-it-twice-my-vote');
+
 // Current card skin
 let currentCardSkin = 'classic';
 
@@ -141,6 +271,17 @@ function applyCardSkin(skin) {
 let bombPotVoteTimerInterval = null;
 let bombPotVoteExpiresAt = null;
 let isBombPotActive = false;
+
+// ============== RUN IT TWICE STATE ==============
+let runItTwiceVoteTimerInterval = null;
+let runItTwiceVoteExpiresAt = null;
+let hasVotedRunItTwice = false;
+let isRunItTwiceActive = false;
+let run1CommunityCards = null;
+let run2CommunityCards = null;
+let runItTwiceOriginalCards = null;
+let prevRun1CardsCount = 0;
+let prevRun2CardsCount = 0;
 
 // ============== TURN TIMER STATE ==============
 let turnTimerInterval = null;
@@ -184,7 +325,7 @@ function createCardElement(card, size = 'normal', highlight = false) {
     const cardEl = document.createElement('div');
     
     if (!card) {
-        cardEl.className = 'card card-placeholder';
+        cardEl.className = `card card-placeholder${size === 'small' ? ' card-small' : ''}`;
         return cardEl;
     }
     
@@ -205,7 +346,8 @@ function createCardElement(card, size = 'normal', highlight = false) {
         colorClass = isRed ? 'red' : 'black';
     }
     
-    cardEl.className = `card ${colorClass}${highlight ? ' card-in-hand-highlight' : ''}`;
+    const sizeClass = size === 'small' ? ' card-small' : '';
+    cardEl.className = `card ${colorClass}${sizeClass}${highlight ? ' card-in-hand-highlight' : ''}`;
     
     cardEl.innerHTML = `
         <span class="card-corner top">${card.value}${card.suit}</span>
@@ -350,6 +492,8 @@ document.querySelectorAll('.feature-toggle').forEach(toggle => {
                 }
             } else if (checkbox.id === 'config-bomb-pot-enabled') {
                 socket.emit('updateConfig', { bombPotEnabled: checkbox.checked });
+            } else if (checkbox.id === 'config-run-it-twice-enabled') {
+                socket.emit('updateConfig', { runItTwiceEnabled: checkbox.checked });
             }
         }
     });
@@ -486,6 +630,21 @@ btnBombPotNo.addEventListener('click', () => {
     showBombPotVoted(false);
 });
 
+// ============== RUN IT TWICE VOTE BUTTONS ==============
+if (btnRunItTwiceYes) {
+    btnRunItTwiceYes.addEventListener('click', () => {
+        socket.emit('castRunItTwiceVote', { vote: true });
+        showRunItTwiceVoted(true);
+    });
+}
+
+if (btnRunItTwiceNo) {
+    btnRunItTwiceNo.addEventListener('click', () => {
+        socket.emit('castRunItTwiceVote', { vote: false });
+        showRunItTwiceVoted(false);
+    });
+}
+
 function showBombPotVoted(vote) {
     bombPotVoteButtons.classList.add('hidden');
     bombPotVotedStatus.classList.remove('hidden');
@@ -524,6 +683,52 @@ function updateBombPotTimerDisplay() {
     if (remaining <= 0) {
         stopBombPotVoteTimer();
     }
+}
+
+// ============== RUN IT TWICE TIMER FUNCTIONS ==============
+function startRunItTwiceVoteTimer(expiresAt) {
+    stopRunItTwiceVoteTimer();
+    runItTwiceVoteExpiresAt = expiresAt;
+    
+    runItTwiceVoteTimerInterval = setInterval(() => {
+        updateRunItTwiceTimerDisplay();
+    }, 100);
+    
+    updateRunItTwiceTimerDisplay();
+}
+
+function stopRunItTwiceVoteTimer() {
+    if (runItTwiceVoteTimerInterval) {
+        clearInterval(runItTwiceVoteTimerInterval);
+        runItTwiceVoteTimerInterval = null;
+    }
+    runItTwiceVoteExpiresAt = null;
+}
+
+function updateRunItTwiceTimerDisplay() {
+    if (!runItTwiceVoteExpiresAt) return;
+    
+    const now = Date.now();
+    const remaining = Math.max(0, runItTwiceVoteExpiresAt - now);
+    const seconds = Math.ceil(remaining / 1000);
+    
+    if (runItTwiceTimerDisplay) {
+        runItTwiceTimerDisplay.textContent = seconds;
+    }
+    
+    if (remaining <= 0) {
+        stopRunItTwiceVoteTimer();
+    }
+}
+
+function showRunItTwiceVoted(vote) {
+    if (runItTwiceVoteButtons) runItTwiceVoteButtons.classList.add('hidden');
+    if (runItTwiceVotedStatus) runItTwiceVotedStatus.classList.remove('hidden');
+    if (runItTwiceMyVote) {
+        runItTwiceMyVote.textContent = vote ? '✓ TAK' : '✗ NIE';
+        runItTwiceMyVote.style.color = vote ? '#2ecc71' : '#e74c3c';
+    }
+    hasVotedRunItTwice = true;
 }
 
 function updateBombPotPanel(gameState) {
@@ -679,6 +884,17 @@ function updateLobbyState(lobby) {
             configBombPotEnabled.checked = isEnabled;
         }
         
+        // Run It Twice toggle
+        const runItTwiceToggle = document.getElementById('toggle-run-it-twice');
+        const configRunItTwiceEnabled = document.getElementById('config-run-it-twice-enabled');
+        if (runItTwiceToggle && configRunItTwiceEnabled) {
+            const isEnabled = lobby.config.runItTwiceEnabled !== false;
+            runItTwiceToggle.classList.toggle('active', isEnabled);
+            const status = runItTwiceToggle.querySelector('.toggle-status');
+            if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
+            configRunItTwiceEnabled.checked = isEnabled;
+        }
+        
         // Card skin selection
         const currentSkin = lobby.config.cardSkin || 'classic';
         document.querySelectorAll('.skin-option').forEach(opt => {
@@ -829,15 +1045,290 @@ function renderCommunityCards(cards, highlightCards = []) {
             }
             
             communityCardsEl.appendChild(cardEl);
+        } else if (rabbitHuntRevealed && rabbitHuntCards && rabbitHuntCards[i]) {
+            // Rabbit hunt - pokaż odkryte karty z przygaszeniem
+            const card = rabbitHuntCards[i];
+            const cardEl = createCardElement(card, 'normal', false);
+            cardEl.classList.add('rabbit-hunt-card');
+            communityCardsEl.appendChild(cardEl);
         } else {
+            // Placeholder - sprawdź czy można aktywować rabbit hunt
             const placeholder = document.createElement('div');
             placeholder.className = 'card card-placeholder';
+            
+            // Jeśli można rabbit hunt - dodaj interaktywność
+            if (canRabbitHunt && !rabbitHuntRevealed) {
+                console.log('[RABBIT HUNT] Dodaję interaktywny placeholder dla pozycji', i);
+                placeholder.classList.add('rabbit-hunt-available');
+                placeholder.title = '🐰 Kliknij aby zobaczyć brakujące karty (Rabbit Hunt)';
+                placeholder.addEventListener('click', activateRabbitHunt);
+            }
+            
             communityCardsEl.appendChild(placeholder);
         }
     }
     
     // Zaktualizuj poprzednią liczbę kart
     previousCommunityCardsCount = currentCount;
+}
+
+// ============== RUN IT TWICE DUAL BOARD RENDERING ==============
+function renderDualCommunityCards(run1Highlight = [], run2Highlight = []) {
+    if (!isRunItTwiceActive) return;
+    
+    communityCardsEl.innerHTML = '';
+    communityCardsEl.classList.add('dual-board-mode');
+    
+    // Kontener dla obu boardów
+    const dualContainer = document.createElement('div');
+    dualContainer.className = 'dual-board-container';
+    
+    // === RUN 1 ===
+    const run1Row = document.createElement('div');
+    run1Row.className = 'board-row board-row-1';
+    
+    const run1Label = document.createElement('span');
+    run1Label.className = 'board-label';
+    run1Label.textContent = 'RUN 1';
+    run1Row.appendChild(run1Label);
+    
+    const run1Cards = document.createElement('div');
+    run1Cards.className = 'board-cards';
+    
+    const currentRun1Count = run1CommunityCards ? run1CommunityCards.length : 0;
+    
+    for (let i = 0; i < 5; i++) {
+        if (run1CommunityCards && run1CommunityCards[i]) {
+            const card = run1CommunityCards[i];
+            const cardId = `${card.value}-${card.suit}`;
+            const isHighlighted = run1Highlight.some(hc => hc.cardId === cardId);
+            const cardEl = createCardElement(card, 'small', isHighlighted);
+            
+            // Animacja tylko dla ostatniej dodanej karty
+            if (i === currentRun1Count - 1 && currentRun1Count > prevRun1CardsCount) {
+                cardEl.classList.add('card-dealing');
+            }
+            
+            run1Cards.appendChild(cardEl);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'card card-small card-placeholder';
+            run1Cards.appendChild(placeholder);
+        }
+    }
+    
+    prevRun1CardsCount = currentRun1Count;
+    
+    run1Row.appendChild(run1Cards);
+    dualContainer.appendChild(run1Row);
+    
+    // === RUN 2 ===
+    const run2Row = document.createElement('div');
+    run2Row.className = 'board-row board-row-2';
+    
+    const run2Label = document.createElement('span');
+    run2Label.className = 'board-label';
+    run2Label.textContent = 'RUN 2';
+    run2Row.appendChild(run2Label);
+    
+    const run2Cards = document.createElement('div');
+    run2Cards.className = 'board-cards';
+    
+    const currentRun2Count = run2CommunityCards ? run2CommunityCards.length : 0;
+    
+    for (let i = 0; i < 5; i++) {
+        if (run2CommunityCards && run2CommunityCards[i]) {
+            const card = run2CommunityCards[i];
+            const cardId = `${card.value}-${card.suit}`;
+            const isHighlighted = run2Highlight.some(hc => hc.cardId === cardId);
+            const cardEl = createCardElement(card, 'small', isHighlighted);
+            
+            // Animacja tylko dla ostatniej dodanej karty
+            if (i === currentRun2Count - 1 && currentRun2Count > prevRun2CardsCount) {
+                cardEl.classList.add('card-dealing');
+            }
+            
+            run2Cards.appendChild(cardEl);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'card card-small card-placeholder';
+            run2Cards.appendChild(placeholder);
+        }
+    }
+    
+    prevRun2CardsCount = currentRun2Count;
+    
+    run2Row.appendChild(run2Cards);
+    dualContainer.appendChild(run2Row);
+    
+    communityCardsEl.appendChild(dualContainer);
+}
+
+// Renderuj dual board z informacją o zwycięzcach
+function renderDualCommunityCardsWithWinners(run1Data, run2Data) {
+    if (!isRunItTwiceActive) return;
+    
+    communityCardsEl.innerHTML = '';
+    communityCardsEl.classList.add('dual-board-mode');
+    
+    const dualContainer = document.createElement('div');
+    dualContainer.className = 'dual-board-container';
+    
+    // === RUN 1 ===
+    const run1Row = document.createElement('div');
+    run1Row.className = 'board-row board-row-1';
+    
+    const run1Label = document.createElement('span');
+    run1Label.className = 'board-label';
+    run1Label.textContent = 'RUN 1';
+    run1Row.appendChild(run1Label);
+    
+    const run1CardsEl = document.createElement('div');
+    run1CardsEl.className = 'board-cards';
+    
+    for (let i = 0; i < 5; i++) {
+        if (run1Data.communityCards && run1Data.communityCards[i]) {
+            const card = run1Data.communityCards[i];
+            const cardEl = createCardElement(card, 'small', false);
+            run1CardsEl.appendChild(cardEl);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'card card-small card-placeholder';
+            run1CardsEl.appendChild(placeholder);
+        }
+    }
+    run1Row.appendChild(run1CardsEl);
+    
+    // Dodaj info o zwycięzcy Run 1
+    if (run1Data.winners && run1Data.winners.length > 0) {
+        const winnerInfo = document.createElement('div');
+        winnerInfo.className = 'board-winner';
+        const winnerNames = run1Data.winners.map(w => w.name).join(', ');
+        winnerInfo.innerHTML = `🏆 ${winnerNames}`;
+        winnerInfo.title = `${run1Data.winners[0].hand} - ${run1Data.winAmount} żetonów`;
+        run1Row.appendChild(winnerInfo);
+    }
+    
+    dualContainer.appendChild(run1Row);
+    
+    // === RUN 2 ===
+    const run2Row = document.createElement('div');
+    run2Row.className = 'board-row board-row-2';
+    
+    const run2Label = document.createElement('span');
+    run2Label.className = 'board-label';
+    run2Label.textContent = 'RUN 2';
+    run2Row.appendChild(run2Label);
+    
+    const run2CardsEl = document.createElement('div');
+    run2CardsEl.className = 'board-cards';
+    
+    for (let i = 0; i < 5; i++) {
+        if (run2Data.communityCards && run2Data.communityCards[i]) {
+            const card = run2Data.communityCards[i];
+            const cardEl = createCardElement(card, 'small', false);
+            run2CardsEl.appendChild(cardEl);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'card card-small card-placeholder';
+            run2CardsEl.appendChild(placeholder);
+        }
+    }
+    run2Row.appendChild(run2CardsEl);
+    
+    // Dodaj info o zwycięzcy Run 2
+    if (run2Data.winners && run2Data.winners.length > 0) {
+        const winnerInfo = document.createElement('div');
+        winnerInfo.className = 'board-winner';
+        const winnerNames = run2Data.winners.map(w => w.name).join(', ');
+        winnerInfo.innerHTML = `🏆 ${winnerNames}`;
+        winnerInfo.title = `${run2Data.winners[0].hand} - ${run2Data.winAmount} żetonów`;
+        run2Row.appendChild(winnerInfo);
+    }
+    
+    dualContainer.appendChild(run2Row);
+    
+    communityCardsEl.appendChild(dualContainer);
+}
+
+function resetRunItTwice() {
+    isRunItTwiceActive = false;
+    run1CommunityCards = null;
+    run2CommunityCards = null;
+    runItTwiceOriginalCards = null;
+    prevRun1CardsCount = 0;
+    prevRun2CardsCount = 0;
+    communityCardsEl.classList.remove('dual-board-mode');
+}
+
+// ============== RABBIT HUNT FUNCTIONS ==============
+function activateRabbitHunt() {
+    console.log('[RABBIT HUNT] activateRabbitHunt() wywołana! canRabbitHunt:', canRabbitHunt, 'rabbitHuntRevealed:', rabbitHuntRevealed);
+    if (!canRabbitHunt || rabbitHuntRevealed) return;
+    
+    // Wyślij request do serwera o karty rabbit hunt
+    socket.emit('requestRabbitHunt');
+}
+
+function resetRabbitHunt() {
+    rabbitHuntCards = null;
+    rabbitHuntRevealed = false;
+    canRabbitHunt = false;
+}
+
+// ============== SHOW CARDS FUNCTIONS ==============
+function showMyCards() {
+    if (hasShownCards) return;
+    
+    // Wyślij request do serwera
+    socket.emit('showCards');
+    hasShownCards = true;
+    
+    // Ukryj przycisk
+    if (btnShowCards) {
+        btnShowCards.disabled = true;
+        btnShowCards.innerHTML = '<span class="btn-icon">✓</span><span>Karty pokazane</span>';
+    }
+}
+
+function resetShowCards() {
+    revealedPlayerCards.clear();
+    hasShownCards = false;
+    
+    // Resetuj przycisk
+    if (btnShowCards) {
+        btnShowCards.disabled = false;
+        btnShowCards.innerHTML = '<span class="btn-icon">👁️</span><span>Pokaż karty</span>';
+    }
+}
+
+function updateShowdownActionsVisibility(state) {
+    if (!showdownActions) return;
+    
+    // Pokaż przycisk gdy:
+    // 1. Faza to showdown
+    // 2. Gracz ma karty (yourCards - swoje prywatne karty)
+    // 3. Nie jest spectatorem
+    // 4. Jeszcze nie pokazał kart w tym rozdaniu
+    // 5. ORAZ: sfoldował LUB wygrano przez fold (wonByFold) - bo wtedy karty nie są automatycznie widoczne
+    
+    const isShowdownPhase = state.phase === 'showdown';
+    const hasCards = state.yourCards && state.yourCards.length === 2;
+    const isPlayer = !state.isSpectator;
+    
+    // Znajdź siebie w liście graczy
+    const myPlayer = state.players?.find(p => p.id === myPlayerId);
+    const isFolded = myPlayer?.folded || false;
+    
+    // Karty są automatycznie widoczne gdy: normalny showdown (nie wonByFold) I gracz nie sfoldował
+    const cardsAutoVisible = !state.wonByFold && !isFolded;
+    
+    // Pokaż przycisk jeśli: showdown, mam karty, jestem graczem, karty NIE są auto-widoczne, nie pokazałem jeszcze
+    if (isShowdownPhase && hasCards && isPlayer && !cardsAutoVisible && !hasShownCards) {
+        showdownActions.classList.remove('hidden');
+    } else {
+        showdownActions.classList.add('hidden');
+    }
 }
 
 // ============== DUAL BOARD FUNCTIONS ==============
@@ -871,6 +1362,11 @@ function startClientTurnTimer(playerId, expiresAt) {
     
     turnTimerPlayerId = playerId;
     turnTimerExpiresAt = expiresAt;
+    
+    // Dźwięk gdy to nasza tura
+    if (playerId === myPlayerId) {
+        playSound('turnStart', 0.4);
+    }
     
     turnTimerInterval = setInterval(() => {
         updateTurnTimerDisplay();
@@ -908,7 +1404,6 @@ function updateTurnTimerDisplay() {
     
     const timeLeft = Math.max(0, turnTimerExpiresAt - Date.now());
     const totalTime = currentGameState?.config?.turnTimeout * 1000 || 15000;
-    const percentage = (timeLeft / totalTime) * 100;
     const secondsLeft = Math.ceil(timeLeft / 1000);
     
     // Znajdź element gracza z timerem
@@ -921,16 +1416,6 @@ function updateTurnTimerDisplay() {
         const player = currentGameState?.players?.[seatIndex];
         
         if (player?.id === turnTimerPlayerId) {
-            // Dodaj lub zaktualizuj pasek timera
-            let timerBar = box.querySelector('.turn-timer-bar');
-            if (!timerBar) {
-                timerBar = document.createElement('div');
-                timerBar.className = 'turn-timer-bar';
-                box.insertBefore(timerBar, box.firstChild);
-            }
-            
-            timerBar.style.width = `${percentage}%`;
-            
             // Dodaj lub zaktualizuj tekst z sekundami
             let timerText = box.querySelector('.turn-timer-text');
             if (!timerText) {
@@ -942,19 +1427,15 @@ function updateTurnTimerDisplay() {
             
             // Dodaj klasę critical dla ostatnich 5 sekund
             if (secondsLeft <= 5) {
-                timerBar.classList.add('critical');
                 timerText.classList.add('critical');
                 box.classList.add('timer-critical');
             } else {
-                timerBar.classList.remove('critical');
                 timerText.classList.remove('critical');
                 box.classList.remove('timer-critical');
             }
         } else {
-            // Usuń pasek i tekst z innych graczy
-            const existingBar = box.querySelector('.turn-timer-bar');
+            // Usuń tekst z innych graczy
             const existingText = box.querySelector('.turn-timer-text');
-            if (existingBar) existingBar.remove();
             if (existingText) existingText.remove();
             box.classList.remove('timer-critical');
         }
@@ -993,11 +1474,17 @@ function renderPlayers(players) {
         // Pobierz highlightCards dla tego gracza (showdown)
         const playerHighlightCards = player.highlightCards || [];
         
+        // Sprawdź czy gracz pokazał karty (reveal)
+        const revealedCards = revealedPlayerCards.get(player.id);
+        const cardsToShow = player.cards || revealedCards;
+        const isRevealed = !player.cards && revealedCards; // Karty zostały ręcznie pokazane
+        
         let cardsHtml = '';
-        if (player.cards && player.cards.length === 2) {
+        if (cardsToShow && cardsToShow.length === 2) {
+            const revealedClass = isRevealed ? ' revealed-cards' : '';
             cardsHtml = `
-                <div class="player-cards">
-                    ${player.cards.map((card, cardIndex) => {
+                <div class="player-cards${revealedClass}">
+                    ${cardsToShow.map((card, cardIndex) => {
                         const cardId = `${card.value}-${card.suit}`;
                         const isHighlighted = playerHighlightCards.some(hc => hc.cardId === cardId && hc.source === 'hand');
                         const highlightClass = isHighlighted ? ' card-in-hand-highlight' : '';
@@ -1077,6 +1564,23 @@ function renderPlayers(players) {
             }
         }
         
+        // Hipotetyczny układ dla spasowanych graczy w Run It Twice
+        let foldedHandHtml = '';
+        if (isRunItTwiceActive && player.folded && runItTwiceFoldedPlayers.length > 0) {
+            const foldedData = runItTwiceFoldedPlayers.find(fp => fp.id === player.id);
+            if (foldedData) {
+                foldedHandHtml = `
+                    <div class="folded-hand-info">
+                        <div class="folded-hand-label">Miałbyś:</div>
+                        <div class="folded-hand-runs">
+                            <span class="folded-run run-1">R1: ${foldedData.run1Hand}</span>
+                            <span class="folded-run run-2">R2: ${foldedData.run2Hand}</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
         seat.innerHTML = `
             <div class="${classes.join(' ')}">
                 ${player.isDealer ? '<div class="dealer-chip">D</div>' : ''}
@@ -1086,6 +1590,7 @@ function renderPlayers(players) {
                 ${player.currentBet > 0 ? `<div class="player-bet">Stawka: ${player.currentBet}</div>` : ''}
                 ${player.isAllIn ? '<div class="player-bet" style="color: #ffd700;">ALL-IN!</div>' : ''}
                 ${cardsHtml}
+                ${foldedHandHtml}
             </div>
             ${winnerLabelHtml}
             ${actionLabelHtml}
@@ -1153,7 +1658,10 @@ function updateGameState(state) {
     // Pobierz highlightCards dla tego gracza (jeśli istnieją)
     const myHighlightCards = state.highlightCards || [];
     
-    renderCommunityCards(state.communityCards, myHighlightCards);
+    // Renderuj community cards tylko jeśli Run It Twice nie jest aktywne
+    if (!isRunItTwiceActive) {
+        renderCommunityCards(state.communityCards, myHighlightCards);
+    }
     renderYourCards(state.yourCards, myHighlightCards);
     
     if (state.yourHand && state.yourHand.name) {
@@ -1183,6 +1691,16 @@ function updateGameState(state) {
     } else if (state.isSpectator || isSpectator) {
         yourName.textContent = 'Obserwator';
         yourChips.textContent = '-';
+    }
+    
+    // Podświetlenie stołu gdy to moja tura (ale nie podczas bomb pot)
+    const pokerTable = document.querySelector('.poker-table');
+    if (pokerTable) {
+        if (state.isYourTurn && !state.isSpectator && !state.isBombPot) {
+            pokerTable.classList.add('my-turn');
+        } else {
+            pokerTable.classList.remove('my-turn');
+        }
     }
     
     updateActionButtons(state);
@@ -1231,6 +1749,13 @@ btnCall.addEventListener('click', () => {
 btnBet.addEventListener('click', () => {
     openRaisePanel();
 });
+
+// Pokaż karty po zakończeniu rozdania
+if (btnShowCards) {
+    btnShowCards.addEventListener('click', () => {
+        showMyCards();
+    });
+}
 
 // ============== RAISE PANEL LOGIC ==============
 function openRaisePanel() {
@@ -1396,6 +1921,8 @@ socket.on('joinedLobby', (data) => {
 });
 
 socket.on('lobbyState', (lobby) => {
+    // Zapisz stan lobby dla funkcji kick
+    window.currentLobbyState = lobby;
     updateLobbyState(lobby);
 });
 
@@ -1407,11 +1934,23 @@ socket.on('gameStarted', () => {
 socket.on('gameState', (state) => {
     // Reset przy nowej fazie (preflop = nowe rozdanie)
     if (state.phase === 'preflop' && currentGameState?.phase !== 'preflop') {
-        resetDualBoard();
         // Czyść zwycięzców z poprzedniego rozdania
         currentWinners = [];
         // Czyść ostatnie akcje graczy
         playerLastActions = {};
+        // Reset rabbit hunt
+        resetRabbitHunt();
+        // Reset pokazanych kart
+        resetShowCards();
+        // Reset Run It Twice
+        resetRunItTwice();
+    }
+    
+    // Aktualizuj flagę canRabbitHunt na podstawie stanu gry
+    if (state.wonByFold && state.phase === 'showdown') {
+        canRabbitHunt = true;
+    } else if (state.phase !== 'showdown') {
+        canRabbitHunt = false;
     }
     
     // Jeśli gra jest w toku a jesteśmy na innym ekranie niż gameScreen - przełącz
@@ -1445,6 +1984,9 @@ socket.on('gameState', (state) => {
     } else {
         pokerTable.classList.remove('bomb-pot-active');
     }
+    
+    // Obsługa przycisku "Pokaż karty" w showdown
+    updateShowdownActionsVisibility(state);
 });
 
 // Obsługa ważnych komunikatów gry (tylko jako toast, bez żółtego okna)
@@ -1530,6 +2072,7 @@ socket.on('bombPotVoteResult', (data) => {
 });
 
 socket.on('bombPotStarted', (data) => {
+    playSound('bombPot', 0.7);
     showToast(`💣💥 BOMB POT! Pula: ${data.pot}`, 'warning');
     addLogEntry(`💣💥 BOMB POT rozpoczęty! Pula: ${data.pot}`, 'bombpot');
     
@@ -1554,6 +2097,110 @@ socket.on('bombPotCancelled', (data) => {
     addLogEntry(`🎰 ${data.message}`, 'bombpot');
 });
 
+// ============== RUN IT TWICE SOCKET HANDLERS ==============
+socket.on('runItTwiceVoteStarted', (data) => {
+    showToast(`🎲 Głosowanie Run It Twice rozpoczęte!`, 'info');
+    addLogEntry(`🎲 Głosowanie Run It Twice - ${data.players.length} graczy`, 'info');
+    
+    // Pokaż panel głosowania
+    if (runItTwicePanel) {
+        runItTwicePanel.classList.remove('hidden');
+    }
+    
+    // Reset stanu
+    hasVotedRunItTwice = false;
+    
+    if (runItTwiceYesVotes) runItTwiceYesVotes.textContent = '0';
+    if (runItTwiceTotalVoters) runItTwiceTotalVoters.textContent = data.players.length;
+    
+    // Sprawdź czy jestem uczestnikiem głosowania
+    const isParticipant = data.players.some(p => p.id === myPlayerId);
+    
+    if (isParticipant) {
+        if (runItTwiceVoteButtons) runItTwiceVoteButtons.classList.remove('hidden');
+        if (runItTwiceVotedStatus) runItTwiceVotedStatus.classList.add('hidden');
+    } else {
+        // Obserwator lub nie-uczestnik
+        if (runItTwiceVoteButtons) runItTwiceVoteButtons.classList.add('hidden');
+        if (runItTwiceVotedStatus) {
+            runItTwiceVotedStatus.classList.remove('hidden');
+            if (runItTwiceMyVote) {
+                runItTwiceMyVote.textContent = 'Obserwujesz';
+                runItTwiceMyVote.style.color = '#bbb';
+            }
+        }
+    }
+    
+    startRunItTwiceVoteTimer(data.expiresAt);
+});
+
+socket.on('runItTwiceVoteUpdate', (data) => {
+    if (runItTwiceYesVotes) runItTwiceYesVotes.textContent = data.yesVotes;
+    if (runItTwiceTotalVoters) runItTwiceTotalVoters.textContent = data.totalVoters;
+});
+
+socket.on('runItTwiceVoteResult', (data) => {
+    stopRunItTwiceVoteTimer();
+    
+    // Ukryj panel głosowania
+    if (runItTwicePanel) {
+        runItTwicePanel.classList.add('hidden');
+    }
+    
+    if (data.success) {
+        showToast(`🎲 ${data.message}`, 'success');
+        playSound('cardDeal', 0.5);
+    } else {
+        showToast(`🎲 ${data.message}`, 'info');
+    }
+    addLogEntry(`🎲 ${data.message}`, 'info');
+    
+    hasVotedRunItTwice = false;
+});
+
+socket.on('runItTwiceStarted', (data) => {
+    showToast(`🎲🎲 RUN IT TWICE! Karty zostaną rozdane dwukrotnie.`, 'success');
+    addLogEntry(`🎲🎲 RUN IT TWICE rozpoczęty!`, 'info');
+    playSound('cardDeal', 0.5);
+    
+    // Ustaw stan Run It Twice
+    isRunItTwiceActive = true;
+    runItTwiceOriginalCards = data.originalCommunityCards || [];
+    run1CommunityCards = [...runItTwiceOriginalCards];
+    run2CommunityCards = [...runItTwiceOriginalCards];
+    
+    // Reset liczników kart dla animacji
+    prevRun1CardsCount = run1CommunityCards.length;
+    prevRun2CardsCount = run2CommunityCards.length;
+    
+    // Przełącz na widok dual board
+    renderDualCommunityCards();
+});
+
+socket.on('runItTwiceCardDealt', (data) => {
+    const runNum = data.runNumber;
+    const card = data.card;
+    const cards = data.communityCards;
+    
+    playSound('cardFlip', 0.4);
+    
+    // Aktualizuj odpowiedni board
+    if (runNum === 1) {
+        run1CommunityCards = cards;
+    } else if (runNum === 2) {
+        run2CommunityCards = cards;
+    }
+    
+    // Wyrenderuj zaktualizowany dual board
+    renderDualCommunityCards();
+    
+    // Log tylko przy pełnej fazie
+    const phaseNames = { 'flop': 'Flop', 'turn': 'Turn', 'river': 'River' };
+    if (data.phase === 'river' || (data.phase === 'flop' && cards.length === runItTwiceOriginalCards.length + 3)) {
+        addLogEntry(`🎲 Run ${runNum} ${phaseNames[data.phase]}: ${card.value}${card.suit}`, 'info');
+    }
+});
+
 socket.on('playerAction', (data) => {
     // Zapisz ostatnią akcję gracza
     playerLastActions[data.playerId] = {
@@ -1565,6 +2212,25 @@ socket.on('playerAction', (data) => {
     // Odśwież wyświetlanie graczy z nową akcją
     if (currentGameState && currentGameState.players) {
         renderPlayers(currentGameState.players);
+    }
+    
+    // Odtwórz dźwięk akcji
+    switch (data.action) {
+        case 'fold':
+            playSound('fold', 0.4);
+            break;
+        case 'check':
+            playSound('check', 0.5);
+            break;
+        case 'call':
+            playSound('call', 0.5);
+            break;
+        case 'bet':
+            playSound('bet', 0.5);
+            break;
+        case 'raise':
+            playSound('raise', 0.6);
+            break;
     }
     
     let message = '';
@@ -1616,6 +2282,69 @@ socket.on('autoAction', (data) => {
 socket.on('roundEnd', (data) => {
     console.log('[ROUND END] Zwycięzcy:', data.winners);
     
+    // Sprawdź czy to Run It Twice
+    if (data.runItTwice) {
+        console.log('[RUN IT TWICE] Wyniki:', data.run1, data.run2);
+        
+        // Zaktualizuj dual board z wynikami
+        if (data.run1 && data.run2) {
+            run1CommunityCards = data.run1.communityCards;
+            run2CommunityCards = data.run2.communityCards;
+            
+            // Wyrenderuj z informacją o zwycięzcach
+            renderDualCommunityCardsWithWinners(data.run1, data.run2);
+        }
+        
+        // Zapisz hipotetyczne układy spasowanych graczy
+        runItTwiceFoldedPlayers = data.foldedPlayersCards || [];
+        
+        // Zaloguj i pokaż hipotetyczne układy spasowanych
+        if (runItTwiceFoldedPlayers.length > 0) {
+            console.log('[RUN IT TWICE] Spasowani gracze:', runItTwiceFoldedPlayers);
+            runItTwiceFoldedPlayers.forEach(p => {
+                addLogEntry(`📋 ${p.name} miałby: Run1: ${p.run1Hand} | Run2: ${p.run2Hand}`, 'info');
+            });
+        }
+        
+        // Pokaż komunikat o wynikach Run It Twice
+        const run1Winners = data.run1.winners.map(w => w.name).join(', ');
+        const run2Winners = data.run2.winners.map(w => w.name).join(', ');
+        
+        showToast(`🎲 RUN IT TWICE! Run 1: ${run1Winners} | Run 2: ${run2Winners}`, 'success');
+        addLogEntry(data.message, 'success');
+        
+        // Dźwięk wygranej
+        const isMyWin = data.winners.some(w => w.id === myPlayerId);
+        if (isMyWin) {
+            playSound('win', 0.6);
+        } else if (!isSpectator) {
+            playSound('chips', 0.4);
+        }
+        
+        // Re-renderuj graczy z hipotetycznymi układami
+        if (currentGameState && currentGameState.players) {
+            renderPlayers(currentGameState.players);
+        }
+        
+        // Reset Run It Twice po 6 sekundach
+        setTimeout(() => {
+            resetRunItTwice();
+            runItTwiceFoldedPlayers = [];
+            currentWinners = [];
+            if (currentGameState && currentGameState.players) {
+                renderPlayers(currentGameState.players);
+            }
+        }, 6000);
+        
+        return;
+    }
+    
+    // Sprawdź czy to wygrana przez fold - włącz rabbit hunt
+    if (data.wonByFold) {
+        canRabbitHunt = true;
+        console.log('[RABBIT HUNT] Rozdanie zakończone foldem - rabbit hunt dostępny');
+    }
+    
     // Zapisz informacje o zwycięzcach do podświetlenia
     // Dodaj informację o liczbie graczy w pot (do ukrycia labela gdy sam)
     currentWinners = data.winners.map(w => ({
@@ -1629,6 +2358,15 @@ socket.on('roundEnd', (data) => {
     // Odśwież wyświetlanie graczy z podświetleniem zwycięzców
     if (currentGameState && currentGameState.players) {
         renderPlayers(currentGameState.players);
+    }
+    
+    // Dźwięk wygranej/przegranej
+    const isMyWin = data.winners.some(w => w.id === myPlayerId);
+    if (isMyWin) {
+        playSound('win', 0.6);
+    } else if (!isSpectator) {
+        // Tylko dźwięk chips dla innych
+        playSound('chips', 0.4);
     }
     
     // Pokaż toast z informacją o zwycięzcy
@@ -1673,6 +2411,9 @@ socket.on('allInShowdown', (data) => {
 socket.on('allInCardDealt', (data) => {
     console.log(`[ALL-IN SHOWDOWN] Wykładanie: ${data.phase}`);
     
+    // Dźwięk karty
+    playSound('cardFlip', 0.5);
+    
     const phaseNames = {
         'flop': 'FLOP',
         'turn': 'TURN', 
@@ -1682,9 +2423,61 @@ socket.on('allInCardDealt', (data) => {
     addLogEntry(`📤 ${phaseNames[data.phase] || data.phase} wykładany...`, 'info');
 });
 
+// ============== RABBIT HUNT EVENTS ==============
+socket.on('rabbitHuntCards', (data) => {
+    console.log('[RABBIT HUNT] Otrzymano karty:', data.cards);
+    
+    if (data.cards && data.cards.length > 0) {
+        rabbitHuntCards = data.cards;
+        rabbitHuntRevealed = true;
+        
+        // Odśwież wyświetlanie kart community z rabbit hunt
+        if (currentGameState) {
+            renderCommunityCards(currentGameState.communityCards, currentGameState.highlightCards || []);
+        }
+        
+        showToast('🐰 Rabbit Hunt! Odkryto brakujące karty.', 'info');
+        addLogEntry('🐰 Rabbit Hunt - odkryto brakujące karty', 'info');
+    }
+});
+
+// ============== SHOW CARDS EVENTS ==============
+socket.on('playerShowedCards', (data) => {
+    console.log('[SHOW CARDS] Gracz pokazał karty:', data);
+    
+    // Zapisz pokazane karty
+    revealedPlayerCards.set(data.playerId, data.cards);
+    
+    // Odśwież wyświetlanie graczy
+    if (currentGameState && currentGameState.players) {
+        renderPlayers(currentGameState.players);
+    }
+    
+    // Pokaż toast (nie dla siebie)
+    if (data.playerId !== myPlayerId) {
+        showToast(`👁️ ${data.playerName} pokazał swoje karty!`, 'info');
+    }
+    addLogEntry(`👁️ ${data.playerName} pokazał karty`, 'info');
+});
+
 socket.on('error', (data) => {
     console.log('[ERROR] Błąd z serwera:', data.message);
     showToast(data.message, 'error');
+});
+
+// Obsługa wyrzucenia z lobby przez hosta
+socket.on('kicked', (data) => {
+    console.log('[KICKED] Zostałeś wyrzucony z lobby');
+    resetClientState();
+    showScreen(mainMenu);
+    showToast(data.message || 'Zostałeś wyrzucony z lobby', 'error');
+});
+
+// Obsługa informacji o wyrzuceniu innego gracza
+socket.on('playerKicked', (data) => {
+    console.log('[PLAYER-KICKED]', data.name, 'został wyrzucony z lobby');
+    showToast(`🚪 ${data.name} został wyrzucony z lobby`, 'warning');
+    addLogEntry(`🚪 ${data.name} wyrzucony z lobby`, 'warning');
 });
 
 // Obsługa sukcesu opuszczenia lobby
@@ -1772,6 +2565,7 @@ socket.on('becameSpectator', (data) => {
 
 // Inny gracz stracił wszystkie żetony (broadcast)
 socket.on('playerOutOfChips', (data) => {
+    playSound('bust', 0.5);
     if (data.playerId !== myPlayerId) {
         addLogEntry(`💀 ${data.playerName} stracił wszystkie żetony i został obserwatorem`, 'error');
         showToast(`${data.playerName} stracił wszystkie żetony`, 'info');
@@ -1872,5 +2666,109 @@ document.querySelectorAll('.feature-toggle').forEach(toggle => {
         if (status) status.textContent = 'włączono';
     }
 });
+
+// ============== INICJALIZACJA USTAWIEŃ ==============
+// Przycisk ustawień
+const settingsToggleBtn = document.getElementById('settings-toggle');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings');
+const soundEffectsCheckbox = document.getElementById('toggle-sound-effects');
+const backgroundMusicCheckbox = document.getElementById('toggle-background-music');
+
+if (settingsToggleBtn) {
+    settingsToggleBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'flex';
+        updateSettingsUI();
+        updateLeaveLobbyVisibility();
+    });
+}
+
+if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'none';
+    });
+}
+
+if (settingsModal) {
+    settingsModal.addEventListener('click', (e) => {
+        if (e.target === settingsModal) {
+            settingsModal.style.display = 'none';
+        }
+    });
+}
+
+if (soundEffectsCheckbox) {
+    soundEffectsCheckbox.addEventListener('change', () => {
+        soundEnabled = soundEffectsCheckbox.checked;
+        localStorage.setItem('pokerSoundEnabled', soundEnabled);
+        if (soundEnabled) {
+            playSound('buttonClick', 0.3);
+        }
+    });
+}
+
+if (backgroundMusicCheckbox) {
+    backgroundMusicCheckbox.addEventListener('change', () => {
+        musicEnabled = backgroundMusicCheckbox.checked;
+        localStorage.setItem('pokerMusicEnabled', musicEnabled);
+        if (musicEnabled) {
+            startBackgroundMusic();
+        } else {
+            stopBackgroundMusic();
+        }
+    });
+}
+
+// Przycisk "Opuść lobby" w ustawieniach
+const btnSettingsLeaveLobby = document.getElementById('btn-settings-leave-lobby');
+const leaveLobbySection = document.getElementById('leave-lobby-section');
+
+if (btnSettingsLeaveLobby) {
+    btnSettingsLeaveLobby.addEventListener('click', () => {
+        if (confirm('Czy na pewno chcesz opuścić lobby?')) {
+            socket.emit('leaveLobby');
+            settingsModal.style.display = 'none';
+        }
+    });
+}
+
+// Aktualizuj widoczność sekcji "Opuść lobby" w zależności od stanu
+function updateLeaveLobbyVisibility() {
+    if (leaveLobbySection) {
+        // Pokaż tylko gdy jesteśmy w lobby lub grze
+        const inLobbyOrGame = currentLobbyCode !== null;
+        leaveLobbySection.style.display = inLobbyOrGame ? 'block' : 'none';
+    }
+}
+
+// Inicjalizacja UI ustawień
+updateSettingsUI();
+
+// Dźwięki hover dla przycisków akcji
+const actionButtons = [btnFold, btnCheck, btnCall, btnBet, btnShowCards];
+actionButtons.forEach(btn => {
+    if (btn) {
+        btn.addEventListener('mouseenter', () => {
+            if (!btn.disabled) {
+                playSound('buttonHover', 0.15);
+            }
+        });
+    }
+});
+
+// Dźwięki kliknięcia dla głównych przycisków menu
+document.querySelectorAll('.btn-menu-tile, .btn-primary, .btn-success, .btn-danger').forEach(btn => {
+    btn.addEventListener('click', () => {
+        playSound('buttonClick', 0.3);
+    });
+});
+
+// Uruchom muzykę po pierwszej interakcji użytkownika
+document.addEventListener('click', function initMusic() {
+    if (musicEnabled) {
+        startBackgroundMusic();
+    }
+    document.removeEventListener('click', initMusic);
+}, { once: true });
 
 showScreen(mainMenu);

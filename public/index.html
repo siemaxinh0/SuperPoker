@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🃏 Super Poker - Texas Hold'em</title>
+    <title>SuperPoker</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -107,6 +109,14 @@
                                     <span class="toggle-status">włączono</span>
                                 </div>
                             </div>
+                            <div class="feature-toggle" id="toggle-run-it-twice">
+                                <input type="checkbox" id="config-run-it-twice-enabled" checked hidden>
+                                <div class="toggle-content">
+                                    <span class="toggle-icon">🎲</span>
+                                    <span class="toggle-name">Run It Twice</span>
+                                    <span class="toggle-status">włączono</span>
+                                </div>
+                            </div>
                         </div>
                         <div class="ante-amount-row" id="bb-ante-amount-group" style="display: none;">
                             <label>Wartość BB Ante</label>
@@ -187,11 +197,6 @@
 
     <!-- Ekran gry -->
     <div id="game-screen" class="screen hidden">
-        <!-- Przycisk opuszczenia w rogu -->
-        <button id="btn-leave-game-corner" class="btn-leave-corner" title="Opuść lobby">
-            🚪 Opuść lobby 
-        </button>
-        
         <!-- Kod gry w rogu -->
         <div id="game-code-display" class="game-code-display" title="Kliknij aby skopiować">
             <span class="game-code-label">KOD:</span>
@@ -253,6 +258,27 @@
                     <div id="bomb-pot-voted-status" class="bomb-pot-voted-status hidden">
                         Zagłosowałeś: <span id="bomb-pot-my-vote"></span>
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Run It Twice Voting Panel -->
+        <div id="run-it-twice-panel" class="run-it-twice-panel hidden">
+            <div class="run-it-twice-content">
+                <h4>🎲 Run It Twice</h4>
+                <p class="run-it-twice-description">Wszyscy gracze muszą się zgodzić, aby rozdać karty dwukrotnie.</p>
+                <div class="run-it-twice-timer">
+                    Pozostało: <span id="run-it-twice-timer-display">15</span>s
+                </div>
+                <div class="run-it-twice-votes-display">
+                    Głosy: <span id="run-it-twice-yes-votes">0</span> / <span id="run-it-twice-total-voters">0</span>
+                </div>
+                <div id="run-it-twice-vote-buttons" class="run-it-twice-vote-buttons">
+                    <button id="btn-run-it-twice-yes" class="btn btn-success">✓ TAK</button>
+                    <button id="btn-run-it-twice-no" class="btn btn-danger">✗ NIE</button>
+                </div>
+                <div id="run-it-twice-voted-status" class="run-it-twice-voted-status hidden">
+                    Zagłosowałeś: <span id="run-it-twice-my-vote"></span>
                 </div>
             </div>
         </div>
@@ -341,6 +367,14 @@
                 </button>
             </div>
             
+            <!-- Przycisk Pokaż karty (po zakończeniu rozdania) -->
+            <div class="showdown-actions hidden" id="showdown-actions">
+                <button class="btn btn-show-cards" id="btn-show-cards">
+                    <span class="btn-icon">👁️</span>
+                    <span>Pokaż karty</span>
+                </button>
+            </div>
+            
             <!-- Panel Raise/Bet ze sliderem -->
             <div class="raise-panel hidden" id="raise-panel">
                 <div class="raise-header">
@@ -401,6 +435,43 @@
     
     <!-- Toast notifications -->
     <div id="toast-container"></div>
+
+    <!-- Przycisk ustawień (globalny) -->
+    <button id="settings-toggle" class="settings-toggle" title="Ustawienia">
+        <span class="settings-icon">⚙️</span>
+    </button>
+    
+    <!-- Modal ustawień (globalny) -->
+    <div id="settings-modal" class="settings-modal">
+        <div class="settings-modal-content">
+            <div class="settings-modal-header">
+                <h3>⚙️ Ustawienia</h3>
+                <button id="close-settings" class="close-settings">&times;</button>
+            </div>
+            
+            <div class="settings-section">
+                <h4>🔊 Dźwięk</h4>
+                <div class="setting-item">
+                    <span class="setting-label"><span class="emoji">🎵</span> Efekty dźwiękowe</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-sound-effects" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <span class="setting-label"><span class="emoji">🎶</span> Muzyka w tle</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-background-music" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="settings-section leave-lobby-section" id="leave-lobby-section" style="display: none;">
+                <button id="btn-settings-leave-lobby" class="btn btn-danger btn-leave-lobby">🚪 Opuść lobby</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="script.js"></script>

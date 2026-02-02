@@ -42,6 +42,7 @@ const DEFAULT_CONFIG = {
     bbAnteEnabled: false,
     bbAnteAmount: 20,
     bombPotEnabled: true,
+    runItTwiceEnabled: true,
     cardSkin: 'classic',
     turnTimeout: 15 // Czas na ruch w sekundach
 };
@@ -256,6 +257,133 @@ function clearBombPotVote(lobbyCode) {
     if (voteData) {
         clearTimeout(voteData.timer);
         bombPotVotes.delete(lobbyCode);
+    }
+}
+
+// ============== RUN IT TWICE VOTING ==============
+const RUN_IT_TWICE_VOTE_TIMEOUT = 15000; // 15 sekund na głosowanie
+const runItTwiceVotes = new Map(); // lobbyCode -> { votes: Map<playerId, boolean>, timer, expiresAt, playersInHand }
+
+function startRunItTwiceVote(lobby) {
+    const lobbyCode = lobby.code;
+    const gameState = lobby.gameState;
+    
+    // Wyczyść poprzednie głosowanie jeśli istnieje
+    clearRunItTwiceVote(lobbyCode);
+    
+    const playersInHand = gameState.players.filter(p => !p.folded);
+    
+    if (playersInHand.length < 2) {
+        // Za mało graczy - kontynuuj normalnie
+        runAllInCommunityCards(lobby);
+        return;
+    }
+    
+    const expiresAt = Date.now() + RUN_IT_TWICE_VOTE_TIMEOUT;
+    
+    const voteData = {
+        votes: new Map(),
+        expiresAt,
+        playersInHand: playersInHand.map(p => p.id),
+        timer: setTimeout(() => {
+            endRunItTwiceVote(lobby, false); // Timeout = odrzucone
+        }, RUN_IT_TWICE_VOTE_TIMEOUT)
+    };
+    
+    runItTwiceVotes.set(lobbyCode, voteData);
+    
+    // Powiadom wszystkich o głosowaniu
+    io.to(lobbyCode).emit('runItTwiceVoteStarted', {
+        expiresAt: voteData.expiresAt,
+        players: playersInHand.map(p => ({ id: p.id, name: p.name }))
+    });
+    
+    console.log(`[RUN-IT-TWICE] Głosowanie rozpoczęte z ${playersInHand.length} graczami`);
+}
+
+function castRunItTwiceVote(lobby, playerId, vote) {
+    const voteData = runItTwiceVotes.get(lobby.code);
+    if (!voteData) return false;
+    
+    // Sprawdź czy gracz jest uprawniony do głosowania
+    if (!voteData.playersInHand.includes(playerId)) {
+        return { error: 'Nie uczestniczysz w tym rozdaniu!' };
+    }
+    
+    voteData.votes.set(playerId, vote);
+    
+    const yesVotes = Array.from(voteData.votes.values()).filter(v => v === true).length;
+    const noVotes = Array.from(voteData.votes.values()).filter(v => v === false).length;
+    const totalVoters = voteData.playersInHand.length;
+    const votedCount = voteData.votes.size;
+    
+    // Broadcast aktualizacji głosów
+    io.to(lobby.code).emit('runItTwiceVoteUpdate', {
+        yesVotes,
+        noVotes,
+        totalVoters,
+        votedCount,
+        votes: Object.fromEntries(voteData.votes)
+    });
+    
+    const player = lobby.gameState.players.find(p => p.id === playerId);
+    console.log(`[RUN-IT-TWICE] ${player?.name || playerId} zagłosował: ${vote ? 'TAK' : 'NIE'} (${yesVotes}/${totalVoters})`);
+    
+    // Jeśli ktoś głosuje NIE, od razu kończymy - wszyscy muszą się zgodzić
+    if (vote === false) {
+        endRunItTwiceVote(lobby, false);
+        return true;
+    }
+    
+    // Sprawdź czy wszyscy zagłosowali TAK
+    if (yesVotes === totalVoters) {
+        endRunItTwiceVote(lobby, true);
+    }
+    
+    return true;
+}
+
+function endRunItTwiceVote(lobby, approved) {
+    const voteData = runItTwiceVotes.get(lobby.code);
+    if (!voteData) return;
+    
+    clearTimeout(voteData.timer);
+    runItTwiceVotes.delete(lobby.code);
+    
+    if (approved) {
+        // Wszyscy się zgodzili - uruchom Run It Twice
+        io.to(lobby.code).emit('runItTwiceVoteResult', {
+            success: true,
+            message: 'Wszyscy zgodzili się! Karty zostaną rozdane dwukrotnie.'
+        });
+        
+        console.log(`[RUN-IT-TWICE] Głosowanie PRZYJĘTE - uruchamianie Run It Twice`);
+        
+        // Uruchom Run It Twice z opóźnieniem
+        setTimeout(() => {
+            runAllInCommunityCardsRunItTwice(lobby);
+        }, 1500);
+    } else {
+        // Ktoś się nie zgodził lub timeout
+        io.to(lobby.code).emit('runItTwiceVoteResult', {
+            success: false,
+            message: 'Run It Twice odrzucone. Karty zostaną rozdane normalnie.'
+        });
+        
+        console.log(`[RUN-IT-TWICE] Głosowanie ODRZUCONE - normalne rozdanie`);
+        
+        // Kontynuuj normalnie
+        setTimeout(() => {
+            runAllInCommunityCards(lobby);
+        }, 1000);
+    }
+}
+
+function clearRunItTwiceVote(lobbyCode) {
+    const voteData = runItTwiceVotes.get(lobbyCode);
+    if (voteData) {
+        clearTimeout(voteData.timer);
+        runItTwiceVotes.delete(lobbyCode);
     }
 }
 
@@ -783,8 +911,15 @@ function runAllInShowdown(lobby) {
     // Broadcast gameState żeby UI się zaktualizował
     broadcastGameState(lobby);
     
-    // Od razu wykładaj karty
-    runAllInCommunityCards(lobby);
+    // Sprawdź czy Run It Twice jest włączone i są karty do rozdania
+    const cardsRemaining = 5 - gameState.communityCards.length;
+    if (lobby.config.runItTwiceEnabled && cardsRemaining > 0 && playersInHand.length >= 2) {
+        // Rozpocznij głosowanie Run It Twice
+        startRunItTwiceVote(lobby);
+    } else {
+        // Od razu wykładaj karty normalnie
+        runAllInCommunityCards(lobby);
+    }
 }
 
 function runAllInCommunityCards(lobby) {
@@ -857,6 +992,344 @@ function runAllInCommunityCards(lobby) {
         gameState.phase = 'showdown';
         determineWinner(lobby);
     }, delay);
+}
+
+// ============== RUN IT TWICE COMMUNITY CARDS ==============
+function runAllInCommunityCardsRunItTwice(lobby) {
+    const gameState = lobby.gameState;
+    const playersInHand = getPlayersInHand(gameState);
+    
+    // Oznacz że to Run It Twice
+    gameState.runItTwice = true;
+    
+    // Zapisz aktualną talię i community cards
+    const originalDeck = [...gameState.deck];
+    const originalCommunityCards = [...gameState.communityCards];
+    
+    const phases = ['preflop', 'flop', 'turn', 'river'];
+    const currentPhaseIndex = phases.indexOf(gameState.phase);
+    
+    // Oblicz ile kart potrzebujemy dla każdego runu
+    const cardsNeededForFlop = currentPhaseIndex < 1 ? 3 : 0;
+    const cardsNeededForTurn = currentPhaseIndex < 2 ? 1 : 0;
+    const cardsNeededForRiver = currentPhaseIndex < 3 ? 1 : 0;
+    const totalCardsNeeded = cardsNeededForFlop + cardsNeededForTurn + cardsNeededForRiver;
+    
+    // Weź karty dla pierwszego i drugiego runu
+    const run1Cards = [];
+    const run2Cards = [];
+    
+    for (let i = 0; i < totalCardsNeeded; i++) {
+        run1Cards.push(originalDeck.pop());
+    }
+    for (let i = 0; i < totalCardsNeeded; i++) {
+        run2Cards.push(originalDeck.pop());
+    }
+    
+    // Przygotuj tablice dla każdego runu - zaczynamy od oryginalnych kart
+    const run1CommunityCards = [...originalCommunityCards];
+    const run2CommunityCards = [...originalCommunityCards];
+    
+    // Przygotuj pełne tablice do obliczeń (do użycia przy rozstrzygnięciu)
+    const run1FinalCards = [...originalCommunityCards];
+    const run2FinalCards = [...originalCommunityCards];
+    
+    let cardIndex = 0;
+    if (cardsNeededForFlop > 0) {
+        run1FinalCards.push(run1Cards[cardIndex], run1Cards[cardIndex + 1], run1Cards[cardIndex + 2]);
+        run2FinalCards.push(run2Cards[cardIndex], run2Cards[cardIndex + 1], run2Cards[cardIndex + 2]);
+        cardIndex += 3;
+    }
+    if (cardsNeededForTurn > 0) {
+        run1FinalCards.push(run1Cards[cardIndex]);
+        run2FinalCards.push(run2Cards[cardIndex]);
+        cardIndex += 1;
+    }
+    if (cardsNeededForRiver > 0) {
+        run1FinalCards.push(run1Cards[cardIndex]);
+        run2FinalCards.push(run2Cards[cardIndex]);
+    }
+    
+    // Zapisz obie tablice w gameState
+    gameState.run1CommunityCards = run1FinalCards;
+    gameState.run2CommunityCards = run2FinalCards;
+    
+    console.log(`[RUN-IT-TWICE] Run 1 community: ${run1FinalCards.map(c => c.value + c.suit).join(', ')}`);
+    console.log(`[RUN-IT-TWICE] Run 2 community: ${run2FinalCards.map(c => c.value + c.suit).join(', ')}`);
+    
+    // Wyślij event o rozpoczęciu Run It Twice
+    io.to(lobby.code).emit('runItTwiceStarted', {
+        originalCommunityCards,
+        phase: gameState.phase
+    });
+    
+    // Animacja wykładania kart - karta po karcie
+    let delay = 500;
+    const CARD_DELAY = 800; // Opóźnienie między kartami
+    const RUN_DELAY = 1500; // Opóźnienie między runami
+    
+    // Resetuj indeksy kart
+    let run1CardIndex = 0;
+    let run2CardIndex = 0;
+    
+    // ============ RUN 1 - karta po karcie ============
+    
+    // Flop (jeśli potrzebny)
+    if (cardsNeededForFlop > 0) {
+        for (let i = 0; i < 3; i++) {
+            const cardToAdd = run1Cards[run1CardIndex++];
+            setTimeout(() => {
+                run1CommunityCards.push(cardToAdd);
+                io.to(lobby.code).emit('runItTwiceCardDealt', {
+                    runNumber: 1,
+                    card: cardToAdd,
+                    communityCards: [...run1CommunityCards],
+                    phase: 'flop'
+                });
+                console.log(`[RUN-IT-TWICE] Run 1 - Flop karta ${i + 1}: ${cardToAdd.value}${cardToAdd.suit}`);
+            }, delay);
+            delay += CARD_DELAY;
+        }
+    }
+    
+    // Turn (jeśli potrzebny)
+    if (cardsNeededForTurn > 0) {
+        const cardToAdd = run1Cards[run1CardIndex++];
+        setTimeout(() => {
+            run1CommunityCards.push(cardToAdd);
+            io.to(lobby.code).emit('runItTwiceCardDealt', {
+                runNumber: 1,
+                card: cardToAdd,
+                communityCards: [...run1CommunityCards],
+                phase: 'turn'
+            });
+            console.log(`[RUN-IT-TWICE] Run 1 - Turn: ${cardToAdd.value}${cardToAdd.suit}`);
+        }, delay);
+        delay += CARD_DELAY;
+    }
+    
+    // River (jeśli potrzebny)
+    if (cardsNeededForRiver > 0) {
+        const cardToAdd = run1Cards[run1CardIndex++];
+        setTimeout(() => {
+            run1CommunityCards.push(cardToAdd);
+            io.to(lobby.code).emit('runItTwiceCardDealt', {
+                runNumber: 1,
+                card: cardToAdd,
+                communityCards: [...run1CommunityCards],
+                phase: 'river'
+            });
+            console.log(`[RUN-IT-TWICE] Run 1 - River: ${cardToAdd.value}${cardToAdd.suit}`);
+        }, delay);
+        delay += CARD_DELAY;
+    }
+    
+    // Przerwa między runami
+    delay += RUN_DELAY;
+    
+    // ============ RUN 2 - karta po karcie ============
+    
+    // Flop (jeśli potrzebny)
+    if (cardsNeededForFlop > 0) {
+        for (let i = 0; i < 3; i++) {
+            const cardToAdd = run2Cards[run2CardIndex++];
+            setTimeout(() => {
+                run2CommunityCards.push(cardToAdd);
+                io.to(lobby.code).emit('runItTwiceCardDealt', {
+                    runNumber: 2,
+                    card: cardToAdd,
+                    communityCards: [...run2CommunityCards],
+                    phase: 'flop'
+                });
+                console.log(`[RUN-IT-TWICE] Run 2 - Flop karta ${i + 1}: ${cardToAdd.value}${cardToAdd.suit}`);
+            }, delay);
+            delay += CARD_DELAY;
+        }
+    }
+    
+    // Turn (jeśli potrzebny)
+    if (cardsNeededForTurn > 0) {
+        const cardToAdd = run2Cards[run2CardIndex++];
+        setTimeout(() => {
+            run2CommunityCards.push(cardToAdd);
+            io.to(lobby.code).emit('runItTwiceCardDealt', {
+                runNumber: 2,
+                card: cardToAdd,
+                communityCards: [...run2CommunityCards],
+                phase: 'turn'
+            });
+            console.log(`[RUN-IT-TWICE] Run 2 - Turn: ${cardToAdd.value}${cardToAdd.suit}`);
+        }, delay);
+        delay += CARD_DELAY;
+    }
+    
+    // River (jeśli potrzebny)
+    if (cardsNeededForRiver > 0) {
+        const cardToAdd = run2Cards[run2CardIndex++];
+        setTimeout(() => {
+            run2CommunityCards.push(cardToAdd);
+            io.to(lobby.code).emit('runItTwiceCardDealt', {
+                runNumber: 2,
+                card: cardToAdd,
+                communityCards: [...run2CommunityCards],
+                phase: 'river'
+            });
+            console.log(`[RUN-IT-TWICE] Run 2 - River: ${cardToAdd.value}${cardToAdd.suit}`);
+        }, delay);
+        delay += CARD_DELAY;
+    }
+    
+    // Rozstrzygnięcie po wszystkich kartach
+    delay += RUN_DELAY;
+    setTimeout(() => {
+        gameState.phase = 'showdown';
+        determineWinnerRunItTwice(lobby, run1FinalCards, run2FinalCards);
+    }, delay);
+}
+
+function determineWinnerRunItTwice(lobby, run1Cards, run2Cards) {
+    const gameState = lobby.gameState;
+    const playersInHand = getPlayersInHand(gameState);
+    
+    // Oblicz zwycięzcę dla Run 1
+    const run1Hands = playersInHand.map(player => ({
+        player,
+        hand: getBestHand(player.cards, run1Cards)
+    }));
+    run1Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    
+    // Oblicz zwycięzcę dla Run 2
+    const run2Hands = playersInHand.map(player => ({
+        player,
+        hand: getBestHand(player.cards, run2Cards)
+    }));
+    run2Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    
+    // Znajdź zwycięzców Run 1
+    const run1Winners = [run1Hands[0]];
+    for (let i = 1; i < run1Hands.length; i++) {
+        if (compareHands(run1Hands[i].hand, run1Hands[0].hand) === 0) {
+            run1Winners.push(run1Hands[i]);
+        }
+    }
+    
+    // Znajdź zwycięzców Run 2
+    const run2Winners = [run2Hands[0]];
+    for (let i = 1; i < run2Hands.length; i++) {
+        if (compareHands(run2Hands[i].hand, run2Hands[0].hand) === 0) {
+            run2Winners.push(run2Hands[i]);
+        }
+    }
+    
+    // Podziel pulę na pół
+    const halfPot = Math.floor(gameState.pot / 2);
+    const remainder = gameState.pot % 2;
+    
+    // Wypłać Run 1
+    const run1WinAmount = Math.floor((halfPot + remainder) / run1Winners.length);
+    run1Winners.forEach(w => {
+        w.player.chips += run1WinAmount;
+    });
+    
+    // Wypłać Run 2
+    const run2WinAmount = Math.floor(halfPot / run2Winners.length);
+    run2Winners.forEach(w => {
+        w.player.chips += run2WinAmount;
+    });
+    
+    // Zbierz informacje o wszystkich graczach (w grze)
+    const allPlayersCards = playersInHand.map(p => ({
+        id: p.id,
+        name: p.name,
+        cards: p.cards,
+        run1Hand: getBestHand(p.cards, run1Cards).name,
+        run2Hand: getBestHand(p.cards, run2Cards).name,
+        folded: false
+    }));
+    
+    // Zbierz informacje o spasowanych graczach (hipotetyczne układy)
+    const foldedPlayers = gameState.players.filter(p => p.folded && p.cards && p.cards.length === 2);
+    const foldedPlayersCards = foldedPlayers.map(p => ({
+        id: p.id,
+        name: p.name,
+        cards: p.cards,
+        run1Hand: getBestHand(p.cards, run1Cards).name,
+        run2Hand: getBestHand(p.cards, run2Cards).name,
+        folded: true
+    }));
+    
+    // Zbierz zwycięzców do jednej listy
+    const allWinnersInfo = [];
+    
+    run1Winners.forEach(w => {
+        const existing = allWinnersInfo.find(wi => wi.id === w.player.id);
+        if (existing) {
+            existing.amount += run1WinAmount;
+            existing.runs.push({ run: 1, hand: w.hand.name, amount: run1WinAmount });
+        } else {
+            allWinnersInfo.push({
+                id: w.player.id,
+                name: w.player.name,
+                amount: run1WinAmount,
+                cards: w.player.cards,
+                runs: [{ run: 1, hand: w.hand.name, amount: run1WinAmount }]
+            });
+        }
+    });
+    
+    run2Winners.forEach(w => {
+        const existing = allWinnersInfo.find(wi => wi.id === w.player.id);
+        if (existing) {
+            existing.amount += run2WinAmount;
+            existing.runs.push({ run: 2, hand: w.hand.name, amount: run2WinAmount });
+        } else {
+            allWinnersInfo.push({
+                id: w.player.id,
+                name: w.player.name,
+                amount: run2WinAmount,
+                cards: w.player.cards,
+                runs: [{ run: 2, hand: w.hand.name, amount: run2WinAmount }]
+            });
+        }
+    });
+    
+    // Buduj komunikat
+    const run1WinnerNames = run1Winners.map(w => w.player.name).join(', ');
+    const run2WinnerNames = run2Winners.map(w => w.player.name).join(', ');
+    
+    const message = `🎲 RUN IT TWICE! Run 1: ${run1WinnerNames} (${run1Winners[0].hand.name}) | Run 2: ${run2WinnerNames} (${run2Winners[0].hand.name})`;
+    
+    console.log(`[RUN-IT-TWICE] Run 1: ${run1WinnerNames} wygrywa ${run1WinAmount}`);
+    console.log(`[RUN-IT-TWICE] Run 2: ${run2WinnerNames} wygrywa ${run2WinAmount}`);
+    
+    io.to(lobby.code).emit('roundEnd', {
+        winners: allWinnersInfo,
+        allPlayersCards,
+        foldedPlayersCards,
+        runItTwice: true,
+        run1: {
+            communityCards: run1Cards,
+            winners: run1Winners.map(w => ({ name: w.player.name, hand: w.hand.name })),
+            winAmount: run1WinAmount
+        },
+        run2: {
+            communityCards: run2Cards,
+            winners: run2Winners.map(w => ({ name: w.player.name, hand: w.hand.name })),
+            winAmount: run2WinAmount
+        },
+        message
+    });
+    
+    // Reset run it twice flag
+    gameState.runItTwice = false;
+    gameState.run1CommunityCards = null;
+    gameState.run2CommunityCards = null;
+    
+    broadcastGameState(lobby);
+    
+    setTimeout(() => {
+        startNewRound(lobby);
+    }, 6000);
 }
 
 function nextPhase(lobby) {
@@ -1634,6 +2107,11 @@ function startGame(lobby) {
     
     io.to(lobby.code).emit('gameStatus', { message: 'Gra rozpoczęta!' });
     io.to(lobby.code).emit('gameStarted');
+    
+    // Start turn timer dla pierwszego gracza PRZED broadcastem
+    // żeby dane timera były zawarte w gameState
+    startTurnTimer(lobby);
+    
     broadcastGameState(lobby);
     broadcastLobbyState(lobby);
     
@@ -1833,6 +2311,7 @@ function getPlayerView(lobby, playerId) {
         currentBet: gameState.currentBet,
         communityCards: gameState.communityCards,
         allInShowdown: gameState.allInShowdown || false,
+        wonByFold: gameState.wonByFold || false,
         isBombPot: isBombPot,
         bombPotStake: gameState.bombPotStake || null,
         spectators: spectatorsList,
@@ -1926,6 +2405,7 @@ function getSpectatorView(lobby) {
         currentBet: gameState.currentBet,
         communityCards: gameState.communityCards,
         allInShowdown: gameState.allInShowdown || false,
+        wonByFold: gameState.wonByFold || false,
         isBombPot: isBombPot,
         bombPotStake: gameState.bombPotStake || null,
         spectators: spectatorsList,
@@ -2418,6 +2898,9 @@ io.on('connection', (socket) => {
         if (newConfig.bombPotEnabled !== undefined) {
             lobby.config.bombPotEnabled = !!newConfig.bombPotEnabled;
         }
+        if (newConfig.runItTwiceEnabled !== undefined) {
+            lobby.config.runItTwiceEnabled = !!newConfig.runItTwiceEnabled;
+        }
         if (newConfig.cardSkin !== undefined) {
             const validSkins = ['classic', 'colorful', 'dark'];
             if (validSkins.includes(newConfig.cardSkin)) {
@@ -2555,6 +3038,104 @@ io.on('connection', (socket) => {
         }
     });
     
+    // ============== RUN IT TWICE VOTE SOCKET HANDLER ==============
+    socket.on('castRunItTwiceVote', (data) => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('error', { message: 'Nie jesteś w grze!' });
+            return;
+        }
+        
+        const result = castRunItTwiceVote(lobby, socket.id, data?.vote === true);
+        if (result && result.error) {
+            socket.emit('error', { message: result.error });
+        }
+    });
+    
+    // ============== RABBIT HUNT SOCKET HANDLER ==============
+    socket.on('requestRabbitHunt', () => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('error', { message: 'Nie jesteś w grze!' });
+            return;
+        }
+        
+        const gameState = lobby.gameState;
+        
+        // Sprawdź czy rozdanie zakończyło się foldem
+        if (!gameState.wonByFold || gameState.phase !== 'showdown') {
+            socket.emit('error', { message: 'Rabbit Hunt niedostępny!' });
+            return;
+        }
+        
+        // Sprawdź czy są karty do odkrycia
+        const cardsNeeded = 5 - gameState.communityCards.length;
+        if (cardsNeeded <= 0) {
+            socket.emit('error', { message: 'Wszystkie karty są już odkryte!' });
+            return;
+        }
+        
+        // Pobierz karty z talii (nie zmieniaj stanu gry)
+        const rabbitCards = [];
+        const deckCopy = [...gameState.deck];
+        
+        // Uzupełnij karty community do 5
+        for (let i = 0; i < 5; i++) {
+            if (i < gameState.communityCards.length) {
+                rabbitCards.push(gameState.communityCards[i]);
+            } else if (deckCopy.length > 0) {
+                rabbitCards.push(deckCopy.pop());
+            }
+        }
+        
+        console.log(`[RABBIT-HUNT] ${socket.id} odkrył brakujące karty:`, rabbitCards.slice(gameState.communityCards.length));
+        
+        // Wyślij karty do WSZYSTKICH w lobby (żeby wszyscy widzieli rabbit hunt)
+        io.to(lobby.code).emit('rabbitHuntCards', { 
+            cards: rabbitCards,
+            revealedCount: cardsNeeded
+        });
+    });
+    
+    // ============== SHOW CARDS SOCKET HANDLER ==============
+    socket.on('showCards', () => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby || !lobby.gameState) {
+            socket.emit('error', { message: 'Nie jesteś w grze!' });
+            return;
+        }
+        
+        const gameState = lobby.gameState;
+        
+        // Sprawdź czy to showdown
+        if (gameState.phase !== 'showdown') {
+            socket.emit('error', { message: 'Możesz pokazać karty tylko po zakończeniu rozdania!' });
+            return;
+        }
+        
+        // Znajdź gracza
+        const player = gameState.players.find(p => p.id === socket.id);
+        if (!player) {
+            socket.emit('error', { message: 'Nie jesteś graczem!' });
+            return;
+        }
+        
+        // Sprawdź czy gracz ma karty
+        if (!player.cards || player.cards.length !== 2) {
+            socket.emit('error', { message: 'Nie masz kart do pokazania!' });
+            return;
+        }
+        
+        console.log(`[SHOW-CARDS] ${player.name} pokazuje karty:`, player.cards);
+        
+        // Wyślij informację o pokazanych kartach do wszystkich
+        io.to(lobby.code).emit('playerShowedCards', {
+            playerId: player.id,
+            playerName: player.name,
+            cards: player.cards
+        });
+    });
+    
     socket.on('disconnect', () => {
         const lobby = getLobbyByPlayerId(socket.id);
         if (!lobby) return;
@@ -2640,6 +3221,103 @@ io.on('connection', (socket) => {
                 }
             }
         }
+    });
+    
+    // ============== KICK PLAYER (HOST ONLY) ==============
+    socket.on('kickPlayer', (data) => {
+        const lobby = getLobbyByPlayerId(socket.id);
+        if (!lobby) {
+            socket.emit('error', { message: 'Nie jesteś w żadnym lobby!' });
+            return;
+        }
+        
+        // Sprawdź czy to host
+        if (lobby.hostId !== socket.id) {
+            socket.emit('error', { message: 'Tylko host może wyrzucać graczy!' });
+            return;
+        }
+        
+        const targetId = data?.playerId;
+        if (!targetId || targetId === socket.id) {
+            socket.emit('error', { message: 'Nieprawidłowy gracz!' });
+            return;
+        }
+        
+        // Znajdź gracza
+        const playerIndex = lobby.players.findIndex(p => p.id === targetId);
+        const spectatorIndex = lobby.spectators.findIndex(s => s.id === targetId);
+        
+        let kickedName = '';
+        
+        if (playerIndex !== -1) {
+            kickedName = lobby.players[playerIndex].name;
+            
+            // Jeśli gra trwa, wykonaj auto-fold
+            if (lobby.isGameStarted && lobby.gameState) {
+                const gamePlayer = lobby.gameState.players.find(p => p.id === targetId);
+                if (gamePlayer && !gamePlayer.folded) {
+                    gamePlayer.folded = true;
+                    io.to(lobby.code).emit('playerAction', { 
+                        playerId: targetId, 
+                        playerName: gamePlayer.name, 
+                        action: 'fold' 
+                    });
+                }
+                
+                // Usuń z gameState.players
+                const gamePlayerIndex = lobby.gameState.players.findIndex(p => p.id === targetId);
+                if (gamePlayerIndex !== -1) {
+                    const wasCurrentPlayer = gamePlayerIndex === lobby.gameState.currentPlayerIndex;
+                    lobby.gameState.players.splice(gamePlayerIndex, 1);
+                    
+                    if (lobby.gameState.currentPlayerIndex >= lobby.gameState.players.length) {
+                        lobby.gameState.currentPlayerIndex = 0;
+                    }
+                    if (lobby.gameState.dealerIndex >= lobby.gameState.players.length) {
+                        lobby.gameState.dealerIndex = 0;
+                    }
+                    
+                    if (lobby.gameState.players.length < lobby.config.minPlayers) {
+                        clearBombPotVote(lobby.code);
+                        clearTurnTimer(lobby.code);
+                        lobby.gameState.phase = 'waiting';
+                        lobby.gameState.isGameStarted = false;
+                        lobby.isGameStarted = false;
+                        io.to(lobby.code).emit('gameStatus', { message: 'Za mało graczy. Gra zakończona.' });
+                    } else if (wasCurrentPlayer) {
+                        clearTurnTimer(lobby.code);
+                        findNextPlayer(lobby);
+                    } else if (getPlayersInHand(lobby.gameState).length <= 1) {
+                        endRound(lobby);
+                    }
+                }
+            }
+            
+            lobby.players.splice(playerIndex, 1);
+        } else if (spectatorIndex !== -1) {
+            kickedName = lobby.spectators[spectatorIndex].name;
+            lobby.spectators.splice(spectatorIndex, 1);
+        } else {
+            socket.emit('error', { message: 'Gracz nie znaleziony!' });
+            return;
+        }
+        
+        // Wyślij informację do wyrzuconego gracza
+        const kickedSocket = io.sockets.sockets.get(targetId);
+        if (kickedSocket) {
+            kickedSocket.emit('kicked', { message: 'Zostałeś wyrzucony z lobby przez hosta.' });
+            kickedSocket.leave(lobby.code);
+        }
+        
+        // Powiadom pozostałych
+        io.to(lobby.code).emit('playerKicked', { id: targetId, name: kickedName });
+        
+        broadcastLobbyState(lobby);
+        if (lobby.isGameStarted && lobby.gameState) {
+            broadcastGameState(lobby);
+        }
+        
+        console.log(`[KICK] Host wyrzucił gracza ${kickedName} z lobby ${lobby.code}`);
     });
 });
 
