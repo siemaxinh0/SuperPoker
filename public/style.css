@@ -1928,35 +1928,9 @@ body {
     color: #ffffff !important;
 }
 
+/* Dark skin używa tego samego obrazka card-back.png */
 .card-skin-dark .card-back {
-    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%);
-}
-
-.card-skin-dark .card-back::before {
-    background: linear-gradient(135deg, #1a1a1a 0%, #333 50%, #1a1a1a 100%);
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
-.card-skin-dark .card-back::after {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: 
-        linear-gradient(45deg, transparent 48%, rgba(255, 255, 255, 0.15) 49%, rgba(255, 255, 255, 0.15) 51%, transparent 52%),
-        linear-gradient(-45deg, transparent 48%, rgba(255, 255, 255, 0.15) 49%, rgba(255, 255, 255, 0.15) 51%, transparent 52%),
-        repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 4px,
-            rgba(255, 255, 255, 0.04) 4px,
-            rgba(255, 255, 255, 0.04) 5px
-        ),
-        repeating-linear-gradient(
-            -45deg,
-            transparent,
-            transparent 4px,
-            rgba(255, 255, 255, 0.04) 4px,
-            rgba(255, 255, 255, 0.04) 5px
-        ),
-        radial-gradient(ellipse at center, #333 0%, #1a1a1a 70%);
+    background: url('card-back.png') center/cover no-repeat;
 }
 
 .card-skin-dark .card-placeholder {
@@ -2027,13 +2001,14 @@ body {
 }
 
 .card-back {
-   /* background: linear-gradient(135deg, #8B0000 0%, #B22222 50%, #8B0000 100%); */
     position: relative;
     overflow: hidden;
     background: url('card-back.png') center/cover no-repeat;
+    border: 1px solid rgba(255, 215, 0, 0.4);
 }
 
-/* Zewnętrzna ramka */
+/* Pseudoelementy wyłączone - używamy obrazka card-back.png */
+/*
 .card-back::before {
     content: '';
     position: absolute;
@@ -2043,7 +2018,6 @@ body {
     background: linear-gradient(135deg, #8B0000 0%, #A52A2A 50%, #8B0000 100%);
 }
 
-/* Wewnętrzny ornament */
 .card-back::after {
     content: '';
     position: absolute;
@@ -2051,10 +2025,8 @@ body {
     border: 1px solid rgba(255, 215, 0, 0.4);
     border-radius: 4px;
     background: 
-        /* Centralny romb */
         linear-gradient(45deg, transparent 48%, rgba(255, 215, 0, 0.3) 49%, rgba(255, 215, 0, 0.3) 51%, transparent 52%),
         linear-gradient(-45deg, transparent 48%, rgba(255, 215, 0, 0.3) 49%, rgba(255, 215, 0, 0.3) 51%, transparent 52%),
-        /* Wzór kratki */
         repeating-linear-gradient(
             45deg,
             transparent,
@@ -2069,9 +2041,9 @@ body {
             rgba(255, 215, 0, 0.08) 4px,
             rgba(255, 215, 0, 0.08) 5px
         ),
-        /* Gradient tła */
         radial-gradient(ellipse at center, #A52A2A 0%, #8B0000 70%);
 }
+*/
 
 /* Centralny symbol */
 .card-back .card-back-symbol {
@@ -2900,37 +2872,52 @@ body {
         grid-template-columns: 1fr;
     }
     
+    /* === UKRYJ PANELE BOMB POT I STRADDLE NA MOBILE === */
+    .bomb-pot-panel,
+    .straddle-panel {
+        display: none !important;
+    }
+    
+    /* === WYCENTRUJ KOD GRY NA MOBILE === */
+    .game-code-display {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+    }
+    
     .poker-table {
-        height: 300px;
-        border-radius: 150px;
-        border-width: 10px;
+        height: 320px;
+        border-radius: 160px;
+        border-width: 12px;
     }
     
     .player-seat {
-        width: 80px;
+        width: 90px;
     }
     
     .player-box {
-        padding: 0.3rem;
+        padding: 0.4rem;
+        min-width: 85px;
     }
     
     .player-name {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
     }
     
     .player-chips {
-        font-size: 0.65rem;
+        font-size: 0.7rem;
     }
     
     .player-cards .card {
-        width: 20px;
-        height: 28px;
-        font-size: 0.4rem;
+        width: 22px;
+        height: 30px;
+        font-size: 0.35rem;
     }
     
     .community-cards .card {
-        width: 40px;
-        height: 56px;
+        width: 44px;
+        height: 62px;
+        font-size: 0.65rem;
     }
     
     .player-panel {
@@ -2993,9 +2980,11 @@ body {
         font-size: 2rem;
     }
     
+    /* === POWIĘKSZONY STÓŁ NA MAŁYM MOBILE === */
     .poker-table {
-        height: 220px;
-        border-radius: 110px;
+        height: 260px;
+        border-radius: 130px;
+        border-width: 10px;
     }
 
     /* Zmniejsz odstęp stołu na małych ekranach */
@@ -3032,9 +3021,9 @@ body {
         font-size: 1rem;
     }
     
-    /* Mobile 480px - player seats jeszcze mniejsze */
+    /* === POWIĘKSZONE PLAYER SEATS NA 480px === */
     .player-seat {
-        width: 70px;
+        width: 80px;
     }
     
     .player-seat[data-seat="0"] { top: -18%; left: 50%; }
@@ -3047,33 +3036,36 @@ body {
     .player-seat[data-seat="7"] { top: 0%; left: 8%; }
     
     .player-box {
-        padding: 0.25rem;
+        padding: 0.35rem;
         border-radius: 10px;
+        min-width: 75px;
     }
     
     .player-name {
-        font-size: 0.6rem;
+        font-size: 0.65rem;
     }
     
     .player-chips {
-        font-size: 0.55rem;
+        font-size: 0.6rem;
     }
     
+    /* === ZMNIEJSZONE SYMBOLE W KARTACH === */
     .player-cards .card {
-        width: 16px;
-        height: 22px;
-        font-size: 0.35rem;
+        width: 18px;
+        height: 25px;
+        font-size: 0.3rem;
     }
     
     .community-cards .card {
-        width: 32px;
-        height: 45px;
-        font-size: 0.7rem;
+        width: 36px;
+        height: 50px;
+        font-size: 0.55rem;
     }
     
     .your-cards .card {
-        width: 45px;
-        height: 63px;
+        width: 48px;
+        height: 67px;
+        font-size: 0.85rem;
     }
     
     /* Panel akcji na mobile */
@@ -4880,17 +4872,24 @@ body {
         padding: 0;
     }
     
-    /* Game code - kompaktowy, nie rozciąga się */
+    /* === UKRYJ PANELE NA MOBILE PORTRAIT === */
+    .bomb-pot-panel,
+    .straddle-panel {
+        display: none !important;
+    }
+    
+    /* Game code - WYCENTROWANY na górze */
     .game-code-display {
         position: fixed;
         top: 5px;
-        left: 5px;
-        padding: 4px 8px;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        padding: 4px 12px;
         font-size: 0.65rem;
         z-index: 100;
         width: auto;
         max-width: fit-content;
-        right: auto;
     }
     
     .game-code-label {
@@ -4898,7 +4897,7 @@ body {
     }
     
     .game-code-value {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         letter-spacing: 1px;
     }
     
