@@ -195,7 +195,7 @@ function canDeclareStraddle(lobby, playerId) {
             requiredAmount = lobby.config.bigBlind * 2;
         }
     } else {
-        return { allowed: false, reason: `Pozycja ${position} nie może Straddle` };
+        return { allowed: false, reason: `Pozycja ${position} nie może Straddle'ować` };
     }
     
     // Sprawdź środki

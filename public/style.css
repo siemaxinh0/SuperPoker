@@ -3634,6 +3634,22 @@ body {
     align-items: center;
 }
 
+/* === KARTY W RUN IT TWICE - TYLKO DUŻE SYMBOLE NA ŚRODKU === */
+/* Ukryj rogi kart dla czytelności */
+.board-cards .card .card-corner {
+    display: none;
+}
+
+/* Powiększ wartość i symbol na środku */
+.board-cards .card .card-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.board-cards .card .card-suit {
+    font-size: 1.5rem;
+}
+
 /* Mniejsze karty dla dual board */
 .card-small {
     width: 45px;
