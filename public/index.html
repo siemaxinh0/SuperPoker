@@ -339,15 +339,16 @@
                 <span class="straddle-icon">🎲</span>
                 <span class="straddle-title">Straddle</span>
             </div>
-            <div class="straddle-info" id="straddle-info">
-                <div class="straddle-amount">Kwota: <span id="straddle-amount">-</span></div>
-            </div>
             <div class="straddle-pending" id="straddle-pending-list"></div>
+            <div class="straddle-amount-input">
+                <label for="straddle-amount-input">Kwota:</label>
+                <input type="number" id="straddle-amount-input" min="40" step="10" value="40">
+                <span class="straddle-min-info" id="straddle-min-info">Min: 2× BB</span>
+            </div>
             <button id="btn-straddle" class="btn btn-straddle" disabled>
                 <span class="btn-icon">💎</span>
                 <span id="straddle-btn-text">Straddle</span>
             </button>
-            <div class="straddle-status" id="straddle-status"></div>
         </div>
         
         <!-- Panel gracza -->

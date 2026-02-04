@@ -211,13 +211,24 @@ function canDeclareStraddle(lobby, playerId) {
     };
 }
 
-function declareStraddle(lobby, playerId) {
+function declareStraddle(lobby, playerId, customAmount = null) {
     const validation = canDeclareStraddle(lobby, playerId);
     if (!validation.allowed) {
         return { success: false, message: validation.reason };
     }
     
     const player = lobby.gameState.players.find(p => p.id === playerId);
+    
+    // Użyj customAmount jeśli podano i jest >= minimum
+    let finalAmount = validation.amount;
+    if (customAmount && customAmount >= validation.amount) {
+        // Sprawdź czy gracz ma wystarczająco żetonów na większą kwotę
+        if (player.chips >= customAmount) {
+            finalAmount = customAmount;
+        } else {
+            return { success: false, message: `Za mało żetonów (masz ${player.chips})` };
+        }
+    }
     
     if (!lobby.pendingStraddles) {
         lobby.pendingStraddles = [];
@@ -226,7 +237,7 @@ function declareStraddle(lobby, playerId) {
     const straddle = {
         playerId,
         playerName: player.name,
-        amount: validation.amount,
+        amount: finalAmount,
         position: validation.position,
         isReStraddle: validation.isReStraddle,
         timestamp: Date.now()
@@ -234,12 +245,12 @@ function declareStraddle(lobby, playerId) {
     
     lobby.pendingStraddles.push(straddle);
     
-    console.log(`[STRADDLE] ${player.name} zadeklarował ${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} na pozycji ${validation.position}: ${validation.amount}`);
+    console.log(`[STRADDLE] ${player.name} zadeklarował ${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} na pozycji ${validation.position}: ${finalAmount}`);
     
     return { 
         success: true, 
         straddle,
-        message: `${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} zadeklarowany: ${validation.amount}`
+        message: `${validation.isReStraddle ? 'Re-Straddle' : 'Straddle'} zadeklarowany: ${finalAmount}`
     };
 }
 
@@ -3470,14 +3481,15 @@ io.on('connection', (socket) => {
     });
     
     // ============== STRADDLE SOCKET HANDLERS ==============
-    socket.on('declareStraddle', () => {
+    socket.on('declareStraddle', (data) => {
         const lobby = getLobbyByPlayerId(socket.id);
         if (!lobby || !lobby.gameState) {
             socket.emit('error', { message: 'Nie jesteś w grze!' });
             return;
         }
         
-        const result = declareStraddle(lobby, socket.id);
+        const customAmount = data?.amount ? parseInt(data.amount) : null;
+        const result = declareStraddle(lobby, socket.id, customAmount);
         if (!result.success) {
             socket.emit('error', { message: result.message });
             return;

@@ -282,16 +282,16 @@ const runItTwiceMyVote = document.getElementById('run-it-twice-my-vote');
 
 // ============== STRADDLE DOM ==============
 const straddlePanel = document.getElementById('straddle-panel');
-const straddleInfo = document.getElementById('straddle-info');
-const straddleAmount = document.getElementById('straddle-amount');
 const straddlePendingList = document.getElementById('straddle-pending-list');
 const btnStraddle = document.getElementById('btn-straddle');
 const straddleBtnText = document.getElementById('straddle-btn-text');
-const straddleStatus = document.getElementById('straddle-status');
+const straddleAmountInput = document.getElementById('straddle-amount-input');
+const straddleMinInfo = document.getElementById('straddle-min-info');
 
 // Straddle state
 let hasStraddleDeclared = false;
 let myStraddlePosition = null;
+let straddleMinAmount = 40; // Domyślnie 2x BB (BB=20)
 
 // Current card skin
 let currentCardSkin = 'classic';
@@ -2365,11 +2365,6 @@ socket.on('straddleDeclared', (data) => {
     hasStraddleDeclared = true;
     myStraddlePosition = data.position;
     
-    if (straddleStatus) {
-        straddleStatus.textContent = data.message;
-        straddleStatus.className = 'straddle-status success';
-    }
-    
     if (btnStraddle) {
         btnStraddle.disabled = true;
     }
@@ -2382,11 +2377,6 @@ socket.on('straddleDeclared', (data) => {
 socket.on('straddleCancelled', (data) => {
     hasStraddleDeclared = false;
     myStraddlePosition = null;
-    
-    if (straddleStatus) {
-        straddleStatus.textContent = data.message || data.reason || 'Anulowano';
-        straddleStatus.className = 'straddle-status';
-    }
     
     showToast(`🎲 Straddle anulowany: ${data.reason || data.message}`, 'info');
 });
@@ -2421,8 +2411,8 @@ function updateStraddlePanel(state) {
     }
     
     // Sprawdź czy straddle jest włączone w konfiguracji
-    const straddleInfo = state.straddleInfo;
-    if (!straddleInfo || !state.config?.straddleEnabled) {
+    const straddleInfoData = state.straddleInfo;
+    if (!straddleInfoData || !state.config?.straddleEnabled) {
         straddlePanel.classList.add('hidden');
         return;
     }
@@ -2432,31 +2422,42 @@ function updateStraddlePanel(state) {
     const showPanel = state.phase === 'preflop' || 
                       (state.activeStraddles && state.activeStraddles.length > 0);
     
-    if (!showPanel && !straddleInfo.hasStraddle && !hasStraddleDeclared) {
+    if (!showPanel && !straddleInfoData.hasStraddle && !hasStraddleDeclared) {
         straddlePanel.classList.add('hidden');
         return;
     }
     
     straddlePanel.classList.remove('hidden');
     
-    // Aktualizuj kwotę
-    if (straddleAmount) {
-        straddleAmount.textContent = straddleInfo.amount ? `${straddleInfo.amount}` : '-';
+    // Ustaw minimum dla inputa (2x BB)
+    const bigBlind = state.config?.bigBlind || 20;
+    straddleMinAmount = bigBlind * 2;
+    
+    if (straddleAmountInput) {
+        straddleAmountInput.min = straddleMinAmount;
+        // Ustaw wartość domyślną jeśli aktualna jest mniejsza niż minimum
+        if (parseInt(straddleAmountInput.value) < straddleMinAmount) {
+            straddleAmountInput.value = straddleMinAmount;
+        }
+    }
+    
+    if (straddleMinInfo) {
+        straddleMinInfo.textContent = `Min: ${straddleMinAmount} (2× BB)`;
     }
     
     // Lista oczekujących straddle
-    renderPendingStraddles(straddleInfo.pendingStraddles || []);
+    renderPendingStraddles(straddleInfoData.pendingStraddles || []);
     
     // Aktualizuj przycisk straddle
     if (btnStraddle) {
-        if (straddleInfo.canStraddle && !hasStraddleDeclared) {
+        if (straddleInfoData.canStraddle && !hasStraddleDeclared) {
             btnStraddle.disabled = false;
             
-            if (straddleInfo.isReStraddle) {
-                straddleBtnText.textContent = `Re-Straddle (${straddleInfo.amount})`;
+            if (straddleInfoData.isReStraddle) {
+                straddleBtnText.textContent = `Re-Straddle`;
                 btnStraddle.classList.add('re-straddle');
             } else {
-                straddleBtnText.textContent = `Straddle (${straddleInfo.amount})`;
+                straddleBtnText.textContent = `Straddle`;
                 btnStraddle.classList.remove('re-straddle');
             }
         } else {
@@ -2464,24 +2465,11 @@ function updateStraddlePanel(state) {
             
             if (hasStraddleDeclared) {
                 straddleBtnText.textContent = 'Zadeklarowano';
-            } else if (straddleInfo.reason) {
-                straddleBtnText.textContent = straddleInfo.reason;
+            } else if (straddleInfoData.reason) {
+                straddleBtnText.textContent = straddleInfoData.reason;
             } else {
                 straddleBtnText.textContent = 'Straddle';
             }
-        }
-    }
-    
-    // Aktualizuj status
-    if (straddleStatus && !hasStraddleDeclared) {
-        if (straddleInfo.canStraddle) {
-            straddleStatus.textContent = `Możesz postawić ${straddleInfo.isReStraddle ? 'Re-Straddle' : 'Straddle'}`;
-            straddleStatus.className = 'straddle-status';
-        } else if (straddleInfo.reason) {
-            straddleStatus.textContent = straddleInfo.reason;
-            straddleStatus.className = 'straddle-status';
-        } else {
-            straddleStatus.textContent = '';
         }
     }
 }
@@ -2506,7 +2494,24 @@ function renderPendingStraddles(straddles) {
 // Straddle button event listeners
 if (btnStraddle) {
     btnStraddle.addEventListener('click', () => {
-        socket.emit('declareStraddle');
+        let amount = straddleMinAmount;
+        if (straddleAmountInput) {
+            const inputValue = parseInt(straddleAmountInput.value);
+            if (inputValue >= straddleMinAmount) {
+                amount = inputValue;
+            }
+        }
+        socket.emit('declareStraddle', { amount });
+    });
+}
+
+// Walidacja inputa straddle
+if (straddleAmountInput) {
+    straddleAmountInput.addEventListener('input', () => {
+        const value = parseInt(straddleAmountInput.value);
+        if (value < straddleMinAmount) {
+            straddleAmountInput.value = straddleMinAmount;
+        }
     });
 }
 
