@@ -112,6 +112,9 @@ let canRabbitHunt = false; // Czy można aktywować rabbit hunt (wonByFold)
 let revealedPlayerCards = new Map(); // playerId -> cards (karty pokazane przez graczy)
 let hasShownCards = false; // Czy gracz już pokazał swoje karty w tym rozdaniu
 
+// ============== TIMER WARNING STATE ==============
+let timerWarningPlayed = false; // Czy dźwięk ostrzeżenia timera został już odtworzony
+
 // ============== AUDIO SYSTEM ==============
 let soundEnabled = localStorage.getItem('pokerSoundEnabled') !== 'false'; // Domyślnie włączone
 let musicVolume = parseInt(localStorage.getItem('pokerMusicVolume')) || 30; // Domyślna głośność 30%
@@ -165,6 +168,14 @@ function playSound(soundName, volume = 0.5) {
         });
     } catch (e) {
         console.log(`[AUDIO] Błąd: ${e.message}`);
+    }
+}
+
+function stopSound(soundName) {
+    const audio = audioCache.get(soundName);
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
     }
 }
 
@@ -1426,6 +1437,10 @@ function stopClientTurnTimer() {
     }
     turnTimerPlayerId = null;
     turnTimerExpiresAt = null;
+    timerWarningPlayed = false; // Reset flagi ostrzeżenia
+    
+    // Zatrzymaj dźwięk timera jeśli grał
+    stopSound('timer');
     
     // Usuń wszystkie paski timera i teksty
     document.querySelectorAll('.turn-timer-bar').forEach(el => el.remove());
@@ -1473,6 +1488,12 @@ function updateTurnTimerDisplay() {
             if (secondsLeft <= 5) {
                 timerText.classList.add('critical');
                 box.classList.add('timer-critical');
+                
+                // Odtwórz dźwięk ostrzeżenia TYLKO dla gracza którego to dotyczy (tylko raz)
+                if (!timerWarningPlayed && turnTimerPlayerId === myPlayerId) {
+                    timerWarningPlayed = true;
+                    playSound('timer', 0.6);
+                }
             } else {
                 timerText.classList.remove('critical');
                 box.classList.remove('timer-critical');
@@ -2763,6 +2784,9 @@ socket.on('movedToSpectators', (data) => {
     isSpectator = true;
     isPendingJoin = false;
     
+    // Dźwięk bust - tylko ten gracz to słyszy
+    playSound('bust', 0.6);
+    
     // Wyświetl komunikat
     showToast(data.message, 'error');
     addLogEntry(data.message, 'error');
@@ -2800,7 +2824,11 @@ socket.on('becameSpectator', (data) => {
 
 // Inny gracz stracił wszystkie żetony (broadcast)
 socket.on('playerOutOfChips', (data) => {
-    playSound('bust', 0.5);
+    // Dźwięk bust TYLKO dla gracza którego to dotyczy
+    if (data.playerId === myPlayerId) {
+        playSound('bust', 0.6);
+    }
+    
     if (data.playerId !== myPlayerId) {
         addLogEntry(`💀 ${data.playerName} stracił wszystkie żetony i został obserwatorem`, 'error');
         showToast(`${data.playerName} stracił wszystkie żetony`, 'info');
