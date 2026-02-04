@@ -4258,18 +4258,22 @@ body {
     border-radius: 3px;
     cursor: pointer;
     outline: none;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
 }
 
 .volume-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     background: #fff;
     border-radius: 50%;
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     transition: transform 0.15s ease;
+    margin: 0;
 }
 
 .volume-slider::-webkit-slider-thumb:hover {
@@ -4277,8 +4281,8 @@ body {
 }
 
 .volume-slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     background: #fff;
     border: none;
     border-radius: 50%;

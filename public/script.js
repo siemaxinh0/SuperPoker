@@ -2045,6 +2045,9 @@ socket.on('gameState', (state) => {
         resetShowCards();
         // Reset Run It Twice
         resetRunItTwice();
+        // Reset straddle declaration status
+        hasStraddleDeclared = false;
+        myStraddlePosition = null;
     }
     
     // Aktualizuj flagę canRabbitHunt na podstawie stanu gry
