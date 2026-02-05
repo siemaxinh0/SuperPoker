@@ -2933,10 +2933,14 @@ body {
         height: 77px;
     }
     
+    /* Ukryj action-log na mobile */
     .action-log {
-        position: static;
-        width: 100%;
-        max-height: 150px;
+        display: none;
+    }
+    
+    /* Ukryj symbole w rogach kart w sekcji "Twoje karty" */
+    .your-cards .card .card-corner {
+        display: none;
     }
     
     .quick-bets {
@@ -5338,16 +5342,14 @@ body {
         font-size: 1rem;
     }
     
-    /* Action log - ukryty domyślnie na mobile lub mini */
+    /* Action log - całkowicie ukryty na mobile */
     .action-log {
-        position: fixed;
-        top: 35px;
-        right: 5px;
-        width: 120px;
-        max-height: 100px;
-        font-size: 0.6rem;
-        opacity: 0.7;
-        z-index: 50;
+        display: none;
+    }
+    
+    /* Ukryj symbole w rogach kart w sekcji "Twoje karty" */
+    .your-cards .card .card-corner {
+        display: none;
     }
     
     .log-header {
