@@ -258,6 +258,14 @@ const bombPotVoteStake = document.getElementById('bomb-pot-vote-stake');
 const bombPotTimerDisplay = document.getElementById('bomb-pot-timer-display');
 const bombPotYesVotes = document.getElementById('bomb-pot-yes-votes');
 const bombPotTotalVoters = document.getElementById('bomb-pot-total-voters');
+
+// Mobile bomb pot vote modal
+const bombPotVoteModal = document.getElementById('bomb-pot-vote-modal');
+const btnBombPotMobileYes = document.getElementById('btn-bomb-pot-mobile-yes');
+const btnBombPotMobileNo = document.getElementById('btn-bomb-pot-mobile-no');
+const bombPotStakeDisplay = document.getElementById('bomb-pot-stake-display');
+
+// Desktop bomb pot voting buttons
 const btnBombPotYes = document.getElementById('btn-bomb-pot-yes');
 const btnBombPotNo = document.getElementById('btn-bomb-pot-no');
 const bombPotVoteButtons = document.getElementById('bomb-pot-vote-buttons');
@@ -1797,6 +1805,9 @@ function updateGameState(state) {
     
     // Aktualizuj panel Straddle
     updateStraddlePanel(state);
+    
+    // Aktualizuj widoczność przycisków w ustawieniach (mobilne game actions)
+    updateLeaveLobbyVisibility();
 }
 
 // Aktualizuj listę spectatorów podczas gry
@@ -2137,6 +2148,9 @@ socket.on('newHost', (data) => {
 socket.on('bombPotVoteStarted', (data) => {
     showToast(`💣 ${data.initiatorName} rozpoczyna głosowanie Bomb Pot (stawka: ${data.stake})`, 'warning');
     addLogEntry(`💣 ${data.initiatorName} rozpoczyna głosowanie Bomb Pot (stawka: ${data.stake})`, 'bombpot');
+    
+    // Pokaż mobile vote modal jeśli użytkownik jest na telefonie
+    showMobileBombPotVote(data.stake);
     
     // Aktualizuj panel
     bombPotPanel.classList.remove('hidden');
@@ -2997,6 +3011,9 @@ if (musicVolumeSlider) {
 // Przycisk "Opuść lobby" w ustawieniach
 const btnSettingsLeaveLobby = document.getElementById('btn-settings-leave-lobby');
 const leaveLobbySection = document.getElementById('leave-lobby-section');
+const gameActionsSection = document.getElementById('game-actions-section');
+const btnStartBombPotSettings = document.getElementById('btn-start-bomb-pot');
+const btnStartStraddleSettings = document.getElementById('btn-start-straddle');
 
 if (btnSettingsLeaveLobby) {
     btnSettingsLeaveLobby.addEventListener('click', () => {
@@ -3013,6 +3030,99 @@ function updateLeaveLobbyVisibility() {
         // Pokaż tylko gdy jesteśmy w lobby lub grze
         const inLobbyOrGame = currentLobbyCode !== null;
         leaveLobbySection.style.display = inLobbyOrGame ? 'block' : 'none';
+    }
+    
+    // Pokaż sekcję akcji gry tylko gdy gra jest aktywna i jesteśmy na mobile
+    if (gameActionsSection) {
+        const isMobile = window.innerWidth <= 768;
+        const inGame = currentGameState && currentGameState.isGameStarted;
+        gameActionsSection.style.display = (inGame && isMobile) ? 'block' : 'none';
+        
+        // Pokaż przyciski bomb pot i straddle jeśli są dostępne
+        if (btnStartBombPotSettings && currentGameState) {
+            const canStartBombPot = currentGameState.config?.bombPotEnabled && !currentGameState.bombPotVoting;
+            btnStartBombPotSettings.style.display = canStartBombPot ? 'block' : 'none';
+        }
+        
+        // Przycisk straddle - pokaż zawsze gdy włączone, ale z komunikatem gdy nie można
+        if (btnStartStraddleSettings && currentGameState) {
+            const straddleEnabled = currentGameState.config?.straddleEnabled;
+            const canStraddle = currentGameState.straddleInfo?.canStraddle;
+            
+            // Pokaż przycisk jeśli straddle jest włączone
+            btnStartStraddleSettings.style.display = straddleEnabled ? 'block' : 'none';
+            
+            // Wyłącz przycisk jeśli obecnie nie można straddlować
+            if (straddleEnabled) {
+                btnStartStraddleSettings.disabled = !canStraddle;
+                
+                // Zaktualizuj tekst przycisku z informacją
+                if (canStraddle) {
+                    const amount = currentGameState.straddleInfo?.amount || (currentGameState.config.bigBlind * 2);
+                    btnStartStraddleSettings.textContent = `🎲 Postaw Straddle (${amount})`;
+                } else {
+                    const reason = currentGameState.straddleInfo?.reason || 'Niedostępne';
+                    btnStartStraddleSettings.textContent = `🎲 Straddle (${reason})`;
+                }
+            }
+        }
+    }
+}
+
+// Obsługa przycisków w settings na mobile
+if (btnStartBombPotSettings) {
+    btnStartBombPotSettings.addEventListener('click', () => {
+        if (bombPotStakeInput) {
+            const stake = parseInt(bombPotStakeInput.value);
+            socket.emit('startBombPotVote', { stake });
+            settingsModal.style.display = 'none';
+            showToast('Rozpoczęto głosowanie Bomb Pot', 'success');
+        }
+    });
+}
+
+if (btnStartStraddleSettings) {
+    btnStartStraddleSettings.addEventListener('click', () => {
+        // Sprawdź czy można straddlować
+        if (currentGameState && !currentGameState.straddleInfo?.canStraddle) {
+            const reason = currentGameState.straddleInfo?.reason || 'Obecnie nie możesz straddlować';
+            showToast(reason, 'error');
+            return;
+        }
+        
+        // Użyj kwoty z straddleInfo (minimum) lub z inputa jeśli jest desktop
+        const minAmount = currentGameState?.straddleInfo?.amount || straddleMinAmount;
+        const amount = straddleAmountInput ? Math.max(parseInt(straddleAmountInput.value), minAmount) : minAmount;
+        
+        socket.emit('declareStraddle', { amount });
+        settingsModal.style.display = 'none';
+        showToast(`Zadeklarowano Straddle (${amount})`, 'success');
+    });
+}
+
+// Mobile vote modal handlers
+if (btnBombPotMobileYes) {
+    btnBombPotMobileYes.addEventListener('click', () => {
+        socket.emit('castBombPotVote', { vote: true });
+        if (bombPotVoteModal) bombPotVoteModal.classList.add('hidden');
+        showToast('Zagłosowano TAK na Bomb Pot', 'success');
+    });
+}
+
+if (btnBombPotMobileNo) {
+    btnBombPotMobileNo.addEventListener('click', () => {
+        socket.emit('castBombPotVote', { vote: false });
+        if (bombPotVoteModal) bombPotVoteModal.classList.add('hidden');
+        showToast('Zagłosowano NIE na Bomb Pot', 'info');
+    });
+}
+
+// Funkcja do pokazania mobile vote modal
+function showMobileBombPotVote(stake) {
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile && bombPotVoteModal && bombPotStakeDisplay) {
+        bombPotStakeDisplay.textContent = stake;
+        bombPotVoteModal.classList.remove('hidden');
     }
 }
 

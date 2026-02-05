@@ -493,8 +493,31 @@
                 </div>
             </div>
             
+            <div class="settings-section game-actions-section" id="game-actions-section" style="display: none;">
+                <h4>🎲 Akcje w grze</h4>
+                <button id="btn-start-bomb-pot" class="btn btn-action" style="display: none;">💣 Rozpocznij głosowanie Bomb Pot</button>
+                <button id="btn-start-straddle" class="btn btn-action" style="display: none;">🎲 Postaw Straddle</button>
+            </div>
+            
             <div class="settings-section leave-lobby-section" id="leave-lobby-section" style="display: none;">
                 <button id="btn-settings-leave-lobby" class="btn btn-danger btn-leave-lobby">🚪 Opuść lobby</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal głosowania Bomb Pot (mobile) -->
+    <div id="bomb-pot-vote-modal" class="vote-modal hidden">
+        <div class="vote-modal-content">
+            <div class="vote-modal-header">
+                <h3>💣 Bomb Pot</h3>
+            </div>
+            <div class="vote-modal-body">
+                <p class="vote-question">Wziąć udział w Bomb Pot?</p>
+                <p class="vote-details" id="bomb-pot-vote-details">Stawka: <span id="bomb-pot-stake-display">-</span></p>
+            </div>
+            <div class="vote-modal-actions">
+                <button id="btn-bomb-pot-mobile-yes" class="btn btn-success">✓ Tak</button>
+                <button id="btn-bomb-pot-mobile-no" class="btn btn-danger">✗ Nie</button>
             </div>
         </div>
     </div>

@@ -2909,15 +2909,44 @@ body {
     }
     
     .player-cards .card {
-        width: 22px;
-        height: 30px;
-        font-size: 0.35rem;
+        width: 26px;
+        height: 36px;
+        font-size: 0.45rem;
     }
     
     .community-cards .card {
         width: 44px;
         height: 62px;
-        font-size: 0.65rem;
+    }
+    
+    /* Zmniejsz odstęp stołu na tabletach */
+    :root {
+        --table-bottom-gap: 50px;
+    }
+    
+    /* Community cards - większe dla lepszej czytelności */
+    .community-cards .card {
+        width: 50px;
+        height: 70px;
+    }
+    
+    /* Czcionka dostosowana */
+    .community-cards .card .card-value {
+        font-size: 1.2rem;
+    }
+    
+    .community-cards .card .card-suit {
+        font-size: 1.5rem;
+    }
+    
+    /* Ukryj symbole w rogach kart na środku stołu */
+    .community-cards .card .card-corner {
+        display: none;
+    }
+    
+    /* Phase indicator - ukryty na tabletach też */
+    .phase-indicator {
+        display: none;
     }
     
     .player-panel {
@@ -2970,6 +2999,32 @@ body {
         padding: 6px 12px;
         font-size: 0.75rem;
     }
+    
+    /* BB Ante row - zawijanie na tabletach */
+    .ante-amount-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    .ante-amount-row label {
+        text-align: left;
+        white-space: normal;
+    }
+    
+    /* Raise panel - lepsze wyświetlanie na tabletach */
+    .raise-panel {
+        position: fixed;
+        bottom: auto;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 85%;
+        max-width: 380px;
+        z-index: 300;
+        max-height: 75vh;
+        overflow-y: auto;
+    }
 }
 
 @media (max-width: 480px) {
@@ -2986,14 +3041,14 @@ body {
     
     /* === POWIĘKSZONY STÓŁ NA MAŁYM MOBILE === */
     .poker-table {
-        height: 260px;
-        border-radius: 130px;
+        height: 300px;
+        border-radius: 150px;
         border-width: 10px;
     }
 
     /* Zmniejsz odstęp stołu na małych ekranach */
     :root {
-        --table-bottom-gap: 40px;
+        --table-bottom-gap: 30px;
     }
     
     .btn {
@@ -3654,6 +3709,17 @@ body {
     font-size: 1.5rem;
 }
 
+/* Mniejsze symbole na mobile dla run-it-twice */
+@media (max-width: 768px) {
+    .board-cards .card .card-value {
+        font-size: 0.9rem;
+    }
+    
+    .board-cards .card .card-suit {
+        font-size: 1.1rem;
+    }
+}
+
 /* Mniejsze karty dla dual board */
 .card-small {
     width: 45px;
@@ -3927,6 +3993,21 @@ body {
     font-size: 1.5rem;
     opacity: 0.7;
     animation: rabbitBounce 1s ease-in-out infinite;
+}
+
+/* Mniejsza ikona królika na mobile */
+@media (max-width: 768px) {
+    .card.rabbit-hunt-available::after {
+        font-size: 1rem;
+    }
+    
+    .card.rabbit-hunt-card::before {
+        font-size: 0.7rem;
+        width: 18px;
+        height: 18px;
+        top: -6px;
+        right: -6px;
+    }
 }
 
 @keyframes rabbitBounce {
@@ -4323,6 +4404,116 @@ body {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
+}
+
+/* Game Actions Section */
+.game-actions-section {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+.game-actions-section .btn-action {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    border: 2px solid #2980b9;
+    color: #fff;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.game-actions-section .btn-action:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+}
+
+.game-actions-section .btn-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Vote Modal (mobile) */
+.vote-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    backdrop-filter: blur(5px);
+}
+
+.vote-modal.hidden {
+    display: none;
+}
+
+.vote-modal-content {
+    background: linear-gradient(135deg, rgba(30, 30, 50, 0.98) 0%, rgba(20, 20, 35, 0.98) 100%);
+    border: 2px solid rgba(255, 215, 0, 0.4);
+    border-radius: 20px;
+    padding: 1.5rem;
+    width: 85%;
+    max-width: 350px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    animation: voteModalSlide 0.3s ease-out;
+}
+
+@keyframes voteModalSlide {
+    0% { opacity: 0; transform: scale(0.9); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+.vote-modal-header {
+    text-align: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.vote-modal-header h3 {
+    margin: 0;
+    color: var(--gold);
+    font-size: 1.3rem;
+}
+
+.vote-modal-body {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.vote-question {
+    font-size: 1.1rem;
+    color: #fff;
+    margin-bottom: 0.8rem;
+}
+
+.vote-details {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.vote-modal-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.vote-modal-actions .btn {
+    flex: 1;
+    padding: 1rem;
+    font-size: 1rem;
+    border-radius: 12px;
+    font-weight: 600;
 }
 
 /* Responsywność ustawień */
@@ -4806,13 +4997,25 @@ body {
         margin-bottom: 0.6rem;
     }
     
+    /* Jedna kolumna na wąskich ekranach dla czytelności */
     .settings-grid {
-        grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
+        grid-template-columns: 1fr;
+        gap: 0.6rem;
     }
     
     .setting-item label {
         font-size: 0.7rem;
+    }
+    
+    /* BB Ante row - zawijanie na mobile */
+    .ante-amount-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+    }
+    
+    .ante-amount-row label {
+        text-align: left;
     }
     
     .setting-item input {
@@ -4981,21 +5184,21 @@ body {
         font-size: 0.7rem;
     }
     
-    /* Poker table wrapper - pionowy */
+    /* Poker table wrapper - pionowy, więcej miejsca na dole dla panelu */
     .poker-table-wrapper {
         flex: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 35px 10px 10px 10px;
+        padding: 35px 10px 120px 10px;
         min-height: 0;
     }
     
     /* PIONOWY STÓŁ */
     .poker-table {
-        width: 85vw;
-        max-width: 350px;
+        width: 90vw;
+        max-width: 400px;
         height: auto;
         aspect-ratio: 3 / 4;
         border-radius: 50% / 40%;
@@ -5009,86 +5212,86 @@ body {
         inset: 0;
     }
     
-    /* PIONOWE POZYCJE GRACZY (8 miejsc) - dostosowane do większych boxów */
+    /* PIONOWE POZYCJE GRACZY (8 miejsc) - BLIŻEJ ŚRODKA I MIEŚCI SIĘ NA EKRANIE */
     /* Góra (środek) */
     .player-seat[data-seat="0"] {
-        top: -14%;
+        top: -12%;
         left: 50%;
         transform: translateX(-50%);
     }
     
     /* Górna prawa */
     .player-seat[data-seat="1"] {
-        top: 6%;
+        top: 8%;
         left: auto;
-        right: -12%;
+        right: -5%;
         transform: none;
     }
     
     /* Prawa górna */
     .player-seat[data-seat="2"] {
-        top: 33%;
+        top: 35%;
         left: auto;
-        right: -18%;
+        right: -8%;
         transform: none;
     }
     
     /* Prawa dolna */
     .player-seat[data-seat="3"] {
-        top: 60%;
+        top: 62%;
         left: auto;
-        right: -18%;
+        right: -8%;
         transform: none;
     }
     
     /* Dół (środek) */
     .player-seat[data-seat="4"] {
         top: auto;
-        bottom: -14%;
+        bottom: -12%;
         left: 50%;
         transform: translateX(-50%);
     }
     
     /* Dolna lewa */
     .player-seat[data-seat="5"] {
-        top: 60%;
-        left: -18%;
+        top: 62%;
+        left: -8%;
         right: auto;
         transform: none;
     }
     
     /* Lewa dolna */
     .player-seat[data-seat="6"] {
-        top: 33%;
-        left: -18%;
+        top: 35%;
+        left: -8%;
         right: auto;
         transform: none;
     }
     
     /* Lewa górna */
     .player-seat[data-seat="7"] {
-        top: 6%;
-        left: -12%;
+        top: 8%;
+        left: -5%;
         right: auto;
         transform: none;
     }
     
-    /* Player seat size - WIĘKSZE */
+    /* Player seat size - POWIĘKSZONE */
     .player-seat {
-        width: 78px;
+        width: 88px;
         position: absolute;
     }
     
     /* Player box - większy z lepszym tekstem */
     .player-box {
-        padding: 5px 8px;
+        padding: 6px 10px;
         border-radius: 10px;
-        min-width: 72px;
+        min-width: 82px;
     }
     
     .player-name {
-        font-size: 0.7rem;
-        max-width: 68px;
+        font-size: 0.75rem;
+        max-width: 78px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -5096,23 +5299,23 @@ body {
     }
     
     .player-chips {
-        font-size: 0.65rem;
+        font-size: 0.7rem;
     }
     
     .player-bet {
-        font-size: 0.55rem;
-        padding: 2px 5px;
+        font-size: 0.6rem;
+        padding: 2px 6px;
     }
     
-    /* Player cards przy stole - MNIEJSZE symbole */
+    /* Player cards przy stole - WIĘKSZE symbole dla czytelności */
     .player-cards {
-        gap: 2px;
+        gap: 4px;
     }
     
     .player-cards .card {
-        width: 18px;
-        height: 25px;
-        font-size: 0.35rem;
+        width: 32px;
+        height: 44px;
+        font-size: 0.65rem;
         border-radius: 3px;
     }
     
@@ -5162,21 +5365,34 @@ body {
         padding: 10px;
     }
     
-    /* Community cards - MNIEJSZE symbole */
+    /* Community cards - WIĘKSZE dla lepszej czytelności */
     .community-cards {
-        gap: 3px;
+        gap: 4px;
     }
     
     .community-cards .card {
-        width: 32px;
-        height: 45px;
-        font-size: 0.45rem;
-        border-radius: 4px;
+        width: 48px;
+        height: 67px;
+        border-radius: 5px;
+    }
+    
+    /* Czcionka dostosowana do większych kart */
+    .community-cards .card .card-value {
+        font-size: 1rem;
+    }
+    
+    .community-cards .card .card-suit {
+        font-size: 1.3rem;
+    }
+    
+    /* Ukryj symbole w rogach kart na środku stołu */
+    .community-cards .card .card-corner {
+        display: none;
     }
     
     .card-placeholder {
-        width: 32px;
-        height: 45px;
+        width: 38px;
+        height: 54px;
     }
     
     /* Pot */
@@ -5193,10 +5409,9 @@ body {
         font-size: 1rem;
     }
     
-    /* Phase indicator */
+    /* Phase indicator - UKRYTY na mobile dla więcej miejsca */
     .phase-indicator {
-        padding: 3px 10px;
-        font-size: 0.65rem;
+        display: none;
     }
     
     /* Side pots */
@@ -5234,13 +5449,21 @@ body {
     }
     
     .your-cards {
-        gap: 4px;
+        gap: 5px;
     }
     
     .your-cards .card {
-        width: 40px;
-        height: 56px;
-        font-size: 0.85rem;
+        width: 54px;
+        height: 76px;
+    }
+    
+    /* Większe czcionki dla większych kart */
+    .your-cards .card .card-value {
+        font-size: 1.1rem;
+    }
+    
+    .your-cards .card .card-suit {
+        font-size: 1.4rem;
     }
     
     .your-hand {
@@ -5290,21 +5513,23 @@ body {
         font-size: 0.55rem;
     }
     
-    /* Raise panel - WYŚRODKOWANY na ekranie */
+    /* Raise panel - BLIŻEJ ŚRODKA STOŁU na mobile */
     .raise-panel {
         position: fixed;
         bottom: auto;
-        top: 50%;
+        top: 35%;
         left: 50%;
         right: auto;
         transform: translate(-50%, -50%);
         width: 90%;
-        max-width: 320px;
+        max-width: 340px;
         min-width: auto;
-        padding: 12px;
-        z-index: 200;
+        padding: 15px;
+        z-index: 300;
         border-radius: 15px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+        max-height: 80vh;
+        overflow-y: auto;
     }
     
     .raise-header {
@@ -5527,6 +5752,11 @@ body {
 
 /* === LANDSCAPE MOBILE - utrzymaj poziomy stół === */
 @media (max-width: 900px) and (orientation: landscape) {
+    /* Ukryj action log również w landscape */
+    .action-log {
+        display: none;
+    }
+    
     .poker-table-wrapper {
         padding: 10px;
     }
