@@ -1796,23 +1796,52 @@ function determineWinnerRunItTwice(lobby, run1Cards, run2Cards) {
     
     console.log(`[RUN-IT-TWICE] Suma wypłat: ${allWinnersInfo.reduce((sum, w) => sum + w.amount, 0)} (pot: ${gameState.pot})`);
     
-    // Zbierz wszystkich unikalnych zwycięzców z run1 i run2 (dla wyświetlania)
-    const allRun1Winners = [];
-    const allRun2Winners = [];
-    run1WinnersByPot.forEach(pot => {
-        pot.winners.forEach(w => {
-            if (!allRun1Winners.find(winner => winner.name === w.name)) {
-                allRun1Winners.push(w);
-            }
-        });
+    // Dla wyświetlania zwycięzców - pokaż tylko gracza z NAJLEPSZYM UKŁADEM na danym boardzie
+    // (nie wszystkie side poty, bo to jest mylące)
+    
+    // RUN 1 - znajdź najlepszy układ spośród wszystkich graczy in hand
+    const allRun1Hands = playersInHand.map(player => ({
+        player,
+        hand: getBestHand(player.cards, run1Cards)
+    }));
+    allRun1Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    
+    console.log(`[RUN-IT-TWICE] Run 1 - Wszystkie układy po sortowaniu:`);
+    allRun1Hands.forEach((h, i) => {
+        console.log(`  ${i+1}. ${h.player.name}: ${h.hand.name}`);
     });
-    run2WinnersByPot.forEach(pot => {
-        pot.winners.forEach(w => {
-            if (!allRun2Winners.find(winner => winner.name === w.name)) {
-                allRun2Winners.push(w);
-            }
-        });
+    
+    // Zwycięzcy Run 1 (mogą być remisy)
+    const allRun1Winners = [{ name: allRun1Hands[0].player.name, hand: allRun1Hands[0].hand.name }];
+    for (let i = 1; i < allRun1Hands.length; i++) {
+        if (compareHands(allRun1Hands[i].hand, allRun1Hands[0].hand) === 0) {
+            allRun1Winners.push({ name: allRun1Hands[i].player.name, hand: allRun1Hands[i].hand.name });
+        }
+    }
+    
+    console.log(`[RUN-IT-TWICE] Run 1 - DO WYŚWIETLENIA: ${allRun1Winners.map(w => w.name).join(', ')}`);
+    
+    // RUN 2 - znajdź najlepszy układ spośród wszystkich graczy in hand
+    const allRun2Hands = playersInHand.map(player => ({
+        player,
+        hand: getBestHand(player.cards, run2Cards)
+    }));
+    allRun2Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    
+    console.log(`[RUN-IT-TWICE] Run 2 - Wszystkie układy po sortowaniu:`);
+    allRun2Hands.forEach((h, i) => {
+        console.log(`  ${i+1}. ${h.player.name}: ${h.hand.name}`);
     });
+    
+    // Zwycięzcy Run 2 (mogą być remisy)
+    const allRun2Winners = [{ name: allRun2Hands[0].player.name, hand: allRun2Hands[0].hand.name }];
+    for (let i = 1; i < allRun2Hands.length; i++) {
+        if (compareHands(allRun2Hands[i].hand, allRun2Hands[0].hand) === 0) {
+            allRun2Winners.push({ name: allRun2Hands[i].player.name, hand: allRun2Hands[i].hand.name });
+        }
+    }
+    
+    console.log(`[RUN-IT-TWICE] Run 2 - DO WYŚWIETLENIA: ${allRun2Winners.map(w => w.name).join(', ')}`);
     
     // Oblicz całkowite wypłaty z run1 i run2 (suma wszystkich pul)
     const run1TotalAmount = run1WinnersByPot.reduce((sum, pot) => sum + pot.amount, 0);
