@@ -1628,50 +1628,136 @@ function determineWinnerRunItTwice(lobby, run1Cards, run2Cards) {
     const gameState = lobby.gameState;
     const playersInHand = getPlayersInHand(gameState);
     
-    // Oblicz zwycięzcę dla Run 1
-    const run1Hands = playersInHand.map(player => ({
-        player,
-        hand: getBestHand(player.cards, run1Cards)
-    }));
-    run1Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    // DEBUG: Pokaż stan chipów przed wypłatami
+    console.log(`[RUN-IT-TWICE] Stan PRZED wypłatami:`);
+    playersInHand.forEach(p => {
+        console.log(`  ${p.name}: ${p.chips} chipów (contribution: ${p.totalContribution})`);
+    });
+    console.log(`[RUN-IT-TWICE] Total pot: ${gameState.pot}`);
     
-    // Oblicz zwycięzcę dla Run 2
-    const run2Hands = playersInHand.map(player => ({
-        player,
-        hand: getBestHand(player.cards, run2Cards)
-    }));
-    run2Hands.sort((a, b) => compareHands(b.hand, a.hand));
+    // === OBLICZ SIDE POTY (tak samo jak w normalnym all-in) ===
+    const sidePots = calculateSidePots(gameState, playersInHand);
+    const allWinnersInfo = [];
     
-    // Znajdź zwycięzców Run 1
-    const run1Winners = [run1Hands[0]];
-    for (let i = 1; i < run1Hands.length; i++) {
-        if (compareHands(run1Hands[i].hand, run1Hands[0].hand) === 0) {
-            run1Winners.push(run1Hands[i]);
-        }
-    }
+    // Struktury do zbierania zwycięzców każdego runu (dla komunikatów)
+    const run1WinnersByPot = [];
+    const run2WinnersByPot = [];
     
-    // Znajdź zwycięzców Run 2
-    const run2Winners = [run2Hands[0]];
-    for (let i = 1; i < run2Hands.length; i++) {
-        if (compareHands(run2Hands[i].hand, run2Hands[0].hand) === 0) {
-            run2Winners.push(run2Hands[i]);
-        }
-    }
-    
-    // Podziel pulę na pół
-    const halfPot = Math.floor(gameState.pot / 2);
-    const remainder = gameState.pot % 2;
-    
-    // Wypłać Run 1
-    const run1WinAmount = Math.floor((halfPot + remainder) / run1Winners.length);
-    run1Winners.forEach(w => {
-        w.player.chips += run1WinAmount;
+    console.log(`[RUN-IT-TWICE] Obliczono ${sidePots.length} side pot(ów):`);
+    sidePots.forEach((pot, i) => {
+        console.log(`  Pula ${i+1}: ${pot.amount} żetonów, uprawnieni: ${pot.eligiblePlayers.map(p => `${p.name}(${p.totalContribution})`).join(', ')}`);
     });
     
-    // Wypłać Run 2
-    const run2WinAmount = Math.floor(halfPot / run2Winners.length);
-    run2Winners.forEach(w => {
-        w.player.chips += run2WinAmount;
+    // Dla każdej side pot - podziel na pół i rozstrzygnij osobno dla run1 i run2
+    sidePots.forEach((pot, potIndex) => {
+        const halfPot = Math.floor(pot.amount / 2);
+        const remainder = pot.amount % 2; // Reszta idzie do run1
+        
+        console.log(`[RUN-IT-TWICE] === PULA ${potIndex + 1} (${pot.amount} total, split: ${halfPot + remainder} + ${halfPot}) ===`);
+        
+        // === RUN 1 - Znajdź zwycięzcę wśród eligiblePlayers tej puli ===
+        const run1EligibleHands = pot.eligiblePlayers.map(player => ({
+            player,
+            hand: getBestHand(player.cards, run1Cards)
+        }));
+        run1EligibleHands.sort((a, b) => compareHands(b.hand, a.hand));
+        
+        console.log(`[RUN-IT-TWICE] Run 1 eligible hands sorted:`);
+        run1EligibleHands.forEach((h, i) => {
+            console.log(`  ${i+1}. ${h.player.name}: ${h.hand.name} (${h.hand.cards.map(c => c.value + c.suit).join(', ')})`);
+        });
+        
+        // Znajdź wszystkich zwycięzców Run 1 (mogą być remisy)
+        const run1Winners = [run1EligibleHands[0]];
+        for (let i = 1; i < run1EligibleHands.length; i++) {
+            if (compareHands(run1EligibleHands[i].hand, run1EligibleHands[0].hand) === 0) {
+                run1Winners.push(run1EligibleHands[i]);
+            }
+        }
+        
+        const run1WinAmount = Math.floor((halfPot + remainder) / run1Winners.length);
+        
+        console.log(`[RUN-IT-TWICE] Run 1 winners: ${run1Winners.map(w => w.player.name).join(', ')} (${run1Winners.length} way${run1Winners.length > 1 ? ' split' : ''}, ${run1WinAmount} each)`);
+        
+        run1Winners.forEach(w => {
+            w.player.chips += run1WinAmount;
+            
+            // Dodaj do listy zwycięzców (lub zaktualizuj istniejący wpis)
+            const existingWinner = allWinnersInfo.find(wi => wi.id === w.player.id);
+            if (existingWinner) {
+                existingWinner.amount += run1WinAmount;
+                existingWinner.runs.push({ run: 1, hand: w.hand.name, amount: run1WinAmount, potIndex });
+            } else {
+                allWinnersInfo.push({
+                    id: w.player.id,
+                    name: w.player.name,
+                    amount: run1WinAmount,
+                    cards: w.player.cards,
+                    runs: [{ run: 1, hand: w.hand.name, amount: run1WinAmount, potIndex }]
+                });
+            }
+        });
+        
+        run1WinnersByPot.push({
+            potName: sidePots.length > 1 ? (potIndex === 0 ? 'Main Pot' : `Side Pot ${potIndex}`) : 'Pot',
+            amount: halfPot + remainder,
+            winners: run1Winners.map(w => ({ name: w.player.name, hand: w.hand.name }))
+        });
+        
+        // === RUN 2 - Znajdź zwycięzcę wśród eligiblePlayers tej puli ===
+        const run2EligibleHands = pot.eligiblePlayers.map(player => ({
+            player,
+            hand: getBestHand(player.cards, run2Cards)
+        }));
+        run2EligibleHands.sort((a, b) => compareHands(b.hand, a.hand));
+        
+        console.log(`[RUN-IT-TWICE] Run 2 eligible hands sorted:`);
+        run2EligibleHands.forEach((h, i) => {
+            console.log(`  ${i+1}. ${h.player.name}: ${h.hand.name} (${h.hand.cards.map(c => c.value + c.suit).join(', ')})`);
+        });
+        
+        // Znajdź wszystkich zwycięzców Run 2 (mogą być remisy)
+        const run2Winners = [run2EligibleHands[0]];
+        for (let i = 1; i < run2EligibleHands.length; i++) {
+            if (compareHands(run2EligibleHands[i].hand, run2EligibleHands[0].hand) === 0) {
+                run2Winners.push(run2EligibleHands[i]);
+            }
+        }
+        
+        const run2WinAmount = Math.floor(halfPot / run2Winners.length);
+        
+        console.log(`[RUN-IT-TWICE] Run 2 winners: ${run2Winners.map(w => w.player.name).join(', ')} (${run2Winners.length} way${run2Winners.length > 1 ? ' split' : ''}, ${run2WinAmount} each)`);
+        
+        run2Winners.forEach(w => {
+            w.player.chips += run2WinAmount;
+            
+            // Dodaj do listy zwycięzców (lub zaktualizuj istniejący wpis)
+            const existingWinner = allWinnersInfo.find(wi => wi.id === w.player.id);
+            if (existingWinner) {
+                existingWinner.amount += run2WinAmount;
+                existingWinner.runs.push({ run: 2, hand: w.hand.name, amount: run2WinAmount, potIndex });
+            } else {
+                allWinnersInfo.push({
+                    id: w.player.id,
+                    name: w.player.name,
+                    amount: run2WinAmount,
+                    cards: w.player.cards,
+                    runs: [{ run: 2, hand: w.hand.name, amount: run2WinAmount, potIndex }]
+                });
+            }
+        });
+        
+        run2WinnersByPot.push({
+            potName: sidePots.length > 1 ? (potIndex === 0 ? 'Main Pot' : `Side Pot ${potIndex}`) : 'Pot',
+            amount: halfPot,
+            winners: run2Winners.map(w => ({ name: w.player.name, hand: w.hand.name }))
+        });
+    });
+    
+    // DEBUG: Pokaż stan chipów PO wypłatach
+    console.log(`[RUN-IT-TWICE] Stan PO wypłatach:`);
+    playersInHand.forEach(p => {
+        console.log(`  ${p.name}: ${p.chips} chipów`);
     });
     
     // Zbierz informacje o wszystkich graczach (w grze)
@@ -1695,49 +1781,42 @@ function determineWinnerRunItTwice(lobby, run1Cards, run2Cards) {
         folded: true
     }));
     
-    // Zbierz zwycięzców do jednej listy
-    const allWinnersInfo = [];
-    
-    run1Winners.forEach(w => {
-        const existing = allWinnersInfo.find(wi => wi.id === w.player.id);
-        if (existing) {
-            existing.amount += run1WinAmount;
-            existing.runs.push({ run: 1, hand: w.hand.name, amount: run1WinAmount });
-        } else {
-            allWinnersInfo.push({
-                id: w.player.id,
-                name: w.player.name,
-                amount: run1WinAmount,
-                cards: w.player.cards,
-                runs: [{ run: 1, hand: w.hand.name, amount: run1WinAmount }]
-            });
-        }
-    });
-    
-    run2Winners.forEach(w => {
-        const existing = allWinnersInfo.find(wi => wi.id === w.player.id);
-        if (existing) {
-            existing.amount += run2WinAmount;
-            existing.runs.push({ run: 2, hand: w.hand.name, amount: run2WinAmount });
-        } else {
-            allWinnersInfo.push({
-                id: w.player.id,
-                name: w.player.name,
-                amount: run2WinAmount,
-                cards: w.player.cards,
-                runs: [{ run: 2, hand: w.hand.name, amount: run2WinAmount }]
-            });
-        }
-    });
-    
     // Buduj komunikat
-    const run1WinnerNames = run1Winners.map(w => w.player.name).join(', ');
-    const run2WinnerNames = run2Winners.map(w => w.player.name).join(', ');
+    const run1Summary = run1WinnersByPot.map(p => {
+        const winnerNames = p.winners.map(w => w.name).join(' i ');
+        return sidePots.length > 1 ? `${p.potName}: ${winnerNames}` : winnerNames;
+    }).join(', ');
     
-    const message = `🎲 RUN IT TWICE! Run 1: ${run1WinnerNames} (${run1Winners[0].hand.name}) | Run 2: ${run2WinnerNames} (${run2Winners[0].hand.name})`;
+    const run2Summary = run2WinnersByPot.map(p => {
+        const winnerNames = p.winners.map(w => w.name).join(' i ');
+        return sidePots.length > 1 ? `${p.potName}: ${winnerNames}` : winnerNames;
+    }).join(', ');
     
-    console.log(`[RUN-IT-TWICE] Run 1: ${run1WinnerNames} wygrywa ${run1WinAmount}`);
-    console.log(`[RUN-IT-TWICE] Run 2: ${run2WinnerNames} wygrywa ${run2WinAmount}`);
+    const message = `🎲 RUN IT TWICE! Run 1: ${run1Summary} | Run 2: ${run2Summary}`;
+    
+    console.log(`[RUN-IT-TWICE] Suma wypłat: ${allWinnersInfo.reduce((sum, w) => sum + w.amount, 0)} (pot: ${gameState.pot})`);
+    
+    // Zbierz wszystkich unikalnych zwycięzców z run1 i run2 (dla wyświetlania)
+    const allRun1Winners = [];
+    const allRun2Winners = [];
+    run1WinnersByPot.forEach(pot => {
+        pot.winners.forEach(w => {
+            if (!allRun1Winners.find(winner => winner.name === w.name)) {
+                allRun1Winners.push(w);
+            }
+        });
+    });
+    run2WinnersByPot.forEach(pot => {
+        pot.winners.forEach(w => {
+            if (!allRun2Winners.find(winner => winner.name === w.name)) {
+                allRun2Winners.push(w);
+            }
+        });
+    });
+    
+    // Oblicz całkowite wypłaty z run1 i run2 (suma wszystkich pul)
+    const run1TotalAmount = run1WinnersByPot.reduce((sum, pot) => sum + pot.amount, 0);
+    const run2TotalAmount = run2WinnersByPot.reduce((sum, pot) => sum + pot.amount, 0);
     
     io.to(lobby.code).emit('roundEnd', {
         winners: allWinnersInfo,
@@ -1746,13 +1825,15 @@ function determineWinnerRunItTwice(lobby, run1Cards, run2Cards) {
         runItTwice: true,
         run1: {
             communityCards: run1Cards,
-            winners: run1Winners.map(w => ({ name: w.player.name, hand: w.hand.name })),
-            winAmount: run1WinAmount
+            winners: allRun1Winners,
+            winnersByPot: run1WinnersByPot,
+            winAmount: run1TotalAmount
         },
         run2: {
             communityCards: run2Cards,
-            winners: run2Winners.map(w => ({ name: w.player.name, hand: w.hand.name })),
-            winAmount: run2WinAmount
+            winners: allRun2Winners,
+            winnersByPot: run2WinnersByPot,
+            winAmount: run2TotalAmount
         },
         message
     });
