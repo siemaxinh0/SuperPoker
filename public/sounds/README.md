@@ -26,6 +26,7 @@ Dodaj następujące pliki MP3 do tego folderu:
 | `button-click.mp3` | Dźwięk kliknięcia | Klik przycisku |
 | `notification.mp3` | Dźwięk powiadomienia | Dźwięk alertu |
 | `bomb-pot.mp3` | Dźwięk bomb pot | Eksplozja lub dramatyczny dźwięk |
+| `shuffle.mp3` | Dźwięk tasowania kart | Tasowanie talii - dla nowego rozdania |
 
 ### Muzyka w tle
 

@@ -139,7 +139,8 @@ const SOUNDS = {
     buttonHover: 'sounds/button-hover.mp3',
     buttonClick: 'sounds/button-click.mp3',
     notification: 'sounds/notification.mp3',
-    bombPot: 'sounds/bomb-pot.mp3'
+    bombPot: 'sounds/bomb-pot.mp3',
+    shuffle: 'sounds/shuffle.mp3'
 };
 
 const MUSIC = {
@@ -357,6 +358,52 @@ function showScreen(screen) {
     gameScreen.classList.add('hidden');
     
     screen.classList.remove('hidden');
+}
+
+// ============== NEW ROUND OVERLAY ==============
+function showNewRoundOverlay() {
+    const overlay = document.getElementById('new-round-overlay');
+    if (!overlay) return;
+    
+    // Pokaż overlay
+    overlay.classList.remove('hidden');
+    overlay.classList.remove('fade-out');
+    
+    // Odtwórz dźwięk tasowania
+    playSound('shuffle', 0.6);
+    
+    // Podświetl panel gracza
+    highlightPlayerPanel();
+    
+    // Ukryj po 1.8 sekundy z animacją fade-out
+    setTimeout(() => {
+        overlay.classList.add('fade-out');
+        
+        // Całkowicie ukryj po zakończeniu animacji
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('fade-out');
+        }, 400);
+    }, 1800);
+}
+
+function highlightPlayerPanel() {
+    const panel = document.getElementById('player-panel');
+    if (!panel) return;
+    
+    // Usuń poprzednią klasę jeśli istnieje
+    panel.classList.remove('new-round-highlight');
+    
+    // Wymuś reflow aby animacja zadziałała ponownie
+    void panel.offsetWidth;
+    
+    // Dodaj klasę podświetlenia
+    panel.classList.add('new-round-highlight');
+    
+    // Usuń klasę po 3 sekundach
+    setTimeout(() => {
+        panel.classList.remove('new-round-highlight');
+    }, 3000);
 }
 
 function formatPhase(phase) {
@@ -2065,6 +2112,9 @@ socket.on('gameStarted', () => {
 socket.on('gameState', (state) => {
     // Reset przy nowej fazie (preflop = nowe rozdanie)
     if (state.phase === 'preflop' && currentGameState?.phase !== 'preflop') {
+        // Pokaż animację nowego rozdania
+        showNewRoundOverlay();
+        
         // Czyść zwycięzców z poprzedniego rozdania
         currentWinners = [];
         // Czyść ostatnie akcje graczy
