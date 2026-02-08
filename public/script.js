@@ -951,10 +951,28 @@ function updateLobbyState(lobby) {
         const straddleToggle = document.getElementById('toggle-straddle');
         const configStraddleEnabled = document.getElementById('config-straddle-enabled');
         if (straddleToggle && configStraddleEnabled) {
+            const activePlayers = lobby.players.filter(p => !p.isSpectator);
+            const minPlayersForStraddle = 4;
+            const canEnableStraddle = activePlayers.length >= minPlayersForStraddle;
+            
             const isEnabled = lobby.config.straddleEnabled !== false;
             straddleToggle.classList.toggle('active', isEnabled);
-            const status = straddleToggle.querySelector('.toggle-status');
-            if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
+            
+            // Wyłącz toggle jeśli za mało graczy
+            if (!canEnableStraddle) {
+                straddleToggle.classList.add('disabled');
+                straddleToggle.style.opacity = '0.5';
+                straddleToggle.style.cursor = 'not-allowed';
+                const status = straddleToggle.querySelector('.toggle-status');
+                if (status) status.textContent = `min. ${minPlayersForStraddle} graczy`;
+            } else {
+                straddleToggle.classList.remove('disabled');
+                straddleToggle.style.opacity = '';
+                straddleToggle.style.cursor = '';
+                const status = straddleToggle.querySelector('.toggle-status');
+                if (status) status.textContent = isEnabled ? 'włączono' : 'wyłączono';
+            }
+            
             configStraddleEnabled.checked = isEnabled;
         }
         

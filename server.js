@@ -43,7 +43,7 @@ const DEFAULT_CONFIG = {
     bbAnteAmount: 20,
     bombPotEnabled: true,
     runItTwiceEnabled: true,
-    straddleEnabled: true, // Straddle feature
+    straddleEnabled: false, // Straddle feature
     cardSkin: 'classic',
     turnTimeout: 15 // Czas na ruch w sekundach
 };
@@ -1107,6 +1107,7 @@ function resetRound(gameState) {
     gameState.minRaise = gameState.config.bigBlind;
     gameState.allInShowdown = false;
     gameState.wonByFold = false;
+    gameState.activeStraddles = [];
     
     gameState.players.forEach(p => {
         p.cards = [];
@@ -1793,6 +1794,8 @@ function nextPhase(lobby) {
         case 'preflop':
             gameState.phase = 'flop';
             dealCommunityCards(gameState, 3);
+            // Wyczyść straddle badges po flopie
+            gameState.activeStraddles = [];
             break;
         case 'flop':
             gameState.phase = 'turn';
@@ -3067,6 +3070,13 @@ io.on('connection', (socket) => {
         
         socket.emit('becameSpectator', { message: 'Jesteś teraz obserwatorem.' });
         
+        // Automatycznie wyłącz straddle jeśli liczba graczy < 4
+        const activePlayersAfterSpectator = lobby.players.filter(p => !p.isSpectator);
+        if (activePlayersAfterSpectator.length < 4 && lobby.config.straddleEnabled) {
+            lobby.config.straddleEnabled = false;
+            console.log(`[AUTO-CONFIG] Straddle wyłączony - za mało graczy (${activePlayersAfterSpectator.length}/4)`);
+        }
+        
         broadcastLobbyState(lobby);
         if (lobby.isGameStarted && lobby.gameState) {
             broadcastGameState(lobby);
@@ -3277,6 +3287,13 @@ io.on('connection', (socket) => {
         // Powiadom pozostałych
         io.to(lobby.code).emit('playerLeft', { id: socket.id, name: leftName });
         
+        // Automatycznie wyłącz straddle jeśli liczba graczy < 4
+        const activePlayers = lobby.players.filter(p => !p.isSpectator);
+        if (activePlayers.length < 4 && lobby.config.straddleEnabled) {
+            lobby.config.straddleEnabled = false;
+            console.log(`[AUTO-CONFIG] Straddle wyłączony - za mało graczy (${activePlayers.length}/4)`);
+        }
+        
         // Aktualizuj stan gry jeśli trwa
         if (lobby.isGameStarted && lobby.gameState) {
             const gamePlayerIndex = lobby.gameState.players.findIndex(p => p.id === socket.id);
@@ -3341,7 +3358,13 @@ io.on('connection', (socket) => {
             lobby.config.runItTwiceEnabled = !!newConfig.runItTwiceEnabled;
         }
         if (newConfig.straddleEnabled !== undefined) {
-            lobby.config.straddleEnabled = !!newConfig.straddleEnabled;
+            // Straddle wymaga minimum 4 graczy
+            const activePlayers = lobby.players.filter(p => !p.isSpectator);
+            if (newConfig.straddleEnabled && activePlayers.length < 4) {
+                socket.emit('error', { message: 'Straddle wymaga minimum 4 graczy w lobby!' });
+            } else {
+                lobby.config.straddleEnabled = !!newConfig.straddleEnabled;
+            }
         }
         if (newConfig.cardSkin !== undefined) {
             const validSkins = ['classic', 'colorful', 'dark'];
