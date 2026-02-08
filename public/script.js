@@ -1641,10 +1641,11 @@ function renderPlayers(players) {
         // Klasa do przesunięcia timera gdy jest straddle badge
         const hasStraddleBadge = straddleBadgeHtml !== '';
         
-        // Etykieta ostatniej akcji
+        // Etykieta ostatniej akcji (tylko z bieżącej fazy gry)
         let actionLabelHtml = '';
         const lastAction = playerLastActions[player.id];
-        if (lastAction && Date.now() - lastAction.timestamp < 8000) { // Pokaż przez 8 sekund
+        const currentPhase = currentGameState?.phase || 'waiting';
+        if (lastAction && lastAction.phase === currentPhase && Date.now() - lastAction.timestamp < 8000) { // Pokaż przez 8 sekund tylko w tej samej fazie
             let actionText = '';
             let actionClass = '';
             switch (lastAction.action) {
@@ -2343,11 +2344,12 @@ socket.on('runItTwiceCardDealt', (data) => {
 });
 
 socket.on('playerAction', (data) => {
-    // Zapisz ostatnią akcję gracza
+    // Zapisz ostatnią akcję gracza wraz z fazą gry
     playerLastActions[data.playerId] = {
         action: data.action,
         amount: data.amount || 0,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        phase: currentGameState?.phase || 'preflop'
     };
     
     // Odśwież wyświetlanie graczy z nową akcją
